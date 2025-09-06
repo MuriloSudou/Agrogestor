@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
-import 'package:http/http.dart' as http; 
+import 'package:http/http.dart' as http;
 import 'tela_cadastro.dart';
 import 'package:agrogestor/screens/tela_selecao_propriedade.dart';
 
@@ -18,8 +18,7 @@ class _TelaLoginState extends State<TelaLogin> {
   bool _senhaOculta = true;
   bool _carregando = false;
 
-
-  final String apiUrl = 'http://192.168.3.186/api/login_agricultor.php';
+  final String apiUrl = 'http://10.0.0.78/api/login_agricultor.php';
 
   @override
   void dispose() {
@@ -33,15 +32,14 @@ class _TelaLoginState extends State<TelaLogin> {
       return;
     }
 
-    setState(() { _carregando = true; });
+    setState(() {
+      _carregando = true;
+    });
 
     try {
       final response = await http.post(
         Uri.parse(apiUrl),
-        body: {
-          'email': _emailController.text,
-          'senha': _senhaController.text,
-        },
+        body: {'email': _emailController.text, 'senha': _senhaController.text},
       );
 
       final responseData = jsonDecode(response.body);
@@ -51,7 +49,7 @@ class _TelaLoginState extends State<TelaLogin> {
         final String nomeAgricultor = responseData['data']['nome'];
 
         if (!mounted) return;
-        
+
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
@@ -77,7 +75,11 @@ class _TelaLoginState extends State<TelaLogin> {
         ),
       );
     } finally {
-      if (mounted) { setState(() { _carregando = false; }); }
+      if (mounted) {
+        setState(() {
+          _carregando = false;
+        });
+      }
     }
   }
 
@@ -130,16 +132,23 @@ class _TelaLoginState extends State<TelaLogin> {
                         controller: _senhaController,
                         obscureText: _senhaOculta,
                         decoration: InputDecoration(
-                            labelText: 'Senha',
-                            border: const OutlineInputBorder(),
-                            focusedBorder: const OutlineInputBorder(
-                              borderSide: BorderSide(color: primaryColor),
+                          labelText: 'Senha',
+                          border: const OutlineInputBorder(),
+                          focusedBorder: const OutlineInputBorder(
+                            borderSide: BorderSide(color: primaryColor),
+                          ),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _senhaOculta
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
                             ),
-                            suffixIcon: IconButton(
-                              icon: Icon(_senhaOculta ? Icons.visibility_off : Icons.visibility),
-                              onPressed: () => setState(() => _senhaOculta = !_senhaOculta),
-                            )),
-                        validator: (v) => v == null || v.isEmpty ? 'Insira sua senha' : null,
+                            onPressed: () =>
+                                setState(() => _senhaOculta = !_senhaOculta),
+                          ),
+                        ),
+                        validator: (v) =>
+                            v == null || v.isEmpty ? 'Insira sua senha' : null,
                       ),
                       const SizedBox(height: 24.0),
                       if (_carregando)
@@ -152,7 +161,9 @@ class _TelaLoginState extends State<TelaLogin> {
                             style: ElevatedButton.styleFrom(
                               backgroundColor: buttonColor,
                               foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 16.0),
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 16.0,
+                              ),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8.0),
                               ),
@@ -167,7 +178,9 @@ class _TelaLoginState extends State<TelaLogin> {
                           onPressed: () {
                             Navigator.push(
                               context,
-                              MaterialPageRoute(builder: (context) => const TelaCadastro()),
+                              MaterialPageRoute(
+                                builder: (context) => const TelaCadastro(),
+                              ),
                             );
                           },
                           child: const Text(

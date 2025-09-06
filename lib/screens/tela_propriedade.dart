@@ -1,17 +1,16 @@
-
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'tela_selecao_propriedade.dart'; 
+import 'tela_selecao_propriedade.dart';
 
 class TelaPropriedade extends StatefulWidget {
   final int agricultorId;
-  final String nomeAgricultor; 
+  final String nomeAgricultor;
 
   const TelaPropriedade({
-    super.key, 
+    super.key,
     required this.agricultorId,
-    required this.nomeAgricultor, 
+    required this.nomeAgricultor,
   });
 
   @override
@@ -27,7 +26,7 @@ class _TelaPropriedadeState extends State<TelaPropriedade> {
   bool _carregando = false;
   final List<String> _propriedadesAdicionadas = [];
 
-  final String apiUrl = 'http://192.168.3.186/api/cadastro_propriedade.php';
+  final String apiUrl = 'http://10.0.0.78/api/cadastro_propriedade.php';
 
   @override
   void dispose() {
@@ -41,7 +40,9 @@ class _TelaPropriedadeState extends State<TelaPropriedade> {
   Future<void> _salvarPropriedade() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() { _carregando = true; });
+    setState(() {
+      _carregando = true;
+    });
 
     try {
       final response = await http.post(
@@ -59,7 +60,7 @@ class _TelaPropriedadeState extends State<TelaPropriedade> {
       if (response.statusCode == 200 && responseData['status'] == 'success') {
         setState(() {
           _propriedadesAdicionadas.add(_propriedadeController.text);
-          
+
           _propriedadeController.clear();
           _matriculaController.clear();
           _areaController.clear();
@@ -73,7 +74,9 @@ class _TelaPropriedadeState extends State<TelaPropriedade> {
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(responseData['message'] ?? 'Ocorreu um erro.')),
+          SnackBar(
+            content: Text(responseData['message'] ?? 'Ocorreu um erro.'),
+          ),
         );
       }
     } catch (e) {
@@ -81,11 +84,14 @@ class _TelaPropriedadeState extends State<TelaPropriedade> {
         const SnackBar(content: Text('Não foi possível conectar ao servidor.')),
       );
     } finally {
-      if (mounted) { setState(() { _carregando = false; }); }
+      if (mounted) {
+        setState(() {
+          _carregando = false;
+        });
+      }
     }
   }
 
-  
   void _navegarParaSelecao() {
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
@@ -101,9 +107,7 @@ class _TelaPropriedadeState extends State<TelaPropriedade> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Cadastro de Propriedades'),
-      ),
+      appBar: AppBar(title: const Text('Cadastro de Propriedades')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         child: Column(
@@ -113,22 +117,52 @@ class _TelaPropriedadeState extends State<TelaPropriedade> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  const Text('Insira os dados da propriedade', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Insira os dados da propriedade',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 24),
-                  TextFormField(controller: _propriedadeController, decoration: const InputDecoration(labelText: 'Nome da Propriedade'), validator: (v) => v!.isEmpty ? 'Insira o nome' : null),
+                  TextFormField(
+                    controller: _propriedadeController,
+                    decoration: const InputDecoration(
+                      labelText: 'Nome da Propriedade',
+                    ),
+                    validator: (v) => v!.isEmpty ? 'Insira o nome' : null,
+                  ),
                   const SizedBox(height: 16),
-                  TextFormField(controller: _matriculaController, decoration: const InputDecoration(labelText: 'Matrícula'), validator: (v) => v!.isEmpty ? 'Insira a matrícula' : null),
+                  TextFormField(
+                    controller: _matriculaController,
+                    decoration: const InputDecoration(labelText: 'Matrícula'),
+                    validator: (v) => v!.isEmpty ? 'Insira a matrícula' : null,
+                  ),
                   const SizedBox(height: 16),
-                  TextFormField(controller: _areaController, decoration: const InputDecoration(labelText: 'Área (ha)'), keyboardType: TextInputType.number, validator: (v) => v!.isEmpty ? 'Insira a área' : null),
+                  TextFormField(
+                    controller: _areaController,
+                    decoration: const InputDecoration(labelText: 'Área (ha)'),
+                    keyboardType: TextInputType.number,
+                    validator: (v) => v!.isEmpty ? 'Insira a área' : null,
+                  ),
                   const SizedBox(height: 16),
-                  TextFormField(controller: _enderecoController, decoration: const InputDecoration(labelText: 'Endereço'), validator: (v) => v!.isEmpty ? 'Insira o endereço' : null),
+                  TextFormField(
+                    controller: _enderecoController,
+                    decoration: const InputDecoration(labelText: 'Endereço'),
+                    validator: (v) => v!.isEmpty ? 'Insira o endereço' : null,
+                  ),
                   const SizedBox(height: 32),
-                  _carregando ? const Center(child: CircularProgressIndicator()) : ElevatedButton(onPressed: _salvarPropriedade, child: const Text('Adicionar Propriedade')),
+                  _carregando
+                      ? const Center(child: CircularProgressIndicator())
+                      : ElevatedButton(
+                          onPressed: _salvarPropriedade,
+                          child: const Text('Adicionar Propriedade'),
+                        ),
                 ],
               ),
             ),
             const Divider(height: 40),
-            const Text('Propriedades adicionadas:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const Text(
+              'Propriedades adicionadas:',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
             _propriedadesAdicionadas.isEmpty
                 ? const Text('Nenhuma propriedade adicionada ainda.')
@@ -136,7 +170,11 @@ class _TelaPropriedadeState extends State<TelaPropriedade> {
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: _propriedadesAdicionadas.length,
-                    itemBuilder: (context, index) => Card(child: ListTile(title: Text(_propriedadesAdicionadas[index]))),
+                    itemBuilder: (context, index) => Card(
+                      child: ListTile(
+                        title: Text(_propriedadesAdicionadas[index]),
+                      ),
+                    ),
                   ),
             const SizedBox(height: 24),
             ElevatedButton(

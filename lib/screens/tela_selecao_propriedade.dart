@@ -4,7 +4,6 @@ import 'package:http/http.dart' as http;
 import 'tela_home.dart';
 import 'tela_propriedade.dart';
 
-
 class Propriedade {
   final int id;
   final String nome;
@@ -33,7 +32,7 @@ class _TelaSelecaoPropriedadeState extends State<TelaSelecaoPropriedade> {
   int? _propriedadeSelecionadaId;
   bool _carregando = true;
 
-  final String apiUrl = 'http://192.168.3.186/api/listar_propriedades.php';
+  final String apiUrl = 'http://10.0.0.78/api/listar_propriedades.php';
 
   @override
   void initState() {
@@ -42,7 +41,9 @@ class _TelaSelecaoPropriedadeState extends State<TelaSelecaoPropriedade> {
   }
 
   Future<void> _buscarPropriedades() async {
-    setState(() { _carregando = true; });
+    setState(() {
+      _carregando = true;
+    });
     try {
       final response = await http.post(
         Uri.parse(apiUrl),
@@ -52,13 +53,17 @@ class _TelaSelecaoPropriedadeState extends State<TelaSelecaoPropriedade> {
       if (responseData['status'] == 'success') {
         List<dynamic> propriedadesJson = responseData['data'];
         setState(() {
-          _listaPropriedades = propriedadesJson.map((json) => Propriedade.fromJson(json)).toList();
+          _listaPropriedades = propriedadesJson
+              .map((json) => Propriedade.fromJson(json))
+              .toList();
         });
       }
     } catch (e) {
       // Tratar erro
     } finally {
-      setState(() { _carregando = false; });
+      setState(() {
+        _carregando = false;
+      });
     }
   }
 
@@ -72,7 +77,10 @@ class _TelaSelecaoPropriedadeState extends State<TelaSelecaoPropriedade> {
     // Passa o ID da propriedade selecionada para a TelaHome.
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (context) => TelaHome(propriedadeId: _propriedadeSelecionadaId!)),
+      MaterialPageRoute(
+        builder: (context) =>
+            TelaHome(propriedadeId: _propriedadeSelecionadaId!),
+      ),
     );
   }
 
@@ -107,13 +115,18 @@ class _TelaSelecaoPropriedadeState extends State<TelaSelecaoPropriedade> {
                   children: [
                     const Text(
                       'Selecione uma propriedade para gerenciar',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 20),
                     Expanded(
                       child: _listaPropriedades.isEmpty
-                          ? const Center(child: Text('Nenhuma propriedade cadastrada.'))
+                          ? const Center(
+                              child: Text('Nenhuma propriedade cadastrada.'),
+                            )
                           : ListView.builder(
                               itemCount: _listaPropriedades.length,
                               itemBuilder: (context, index) {

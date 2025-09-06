@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'tela_propriedade.dart'; 
-
+import 'tela_propriedade.dart';
 
 class TelaCadastro extends StatefulWidget {
   const TelaCadastro({super.key});
@@ -20,7 +19,7 @@ class _TelaCadastroState extends State<TelaCadastro> {
   bool _confirmaSenhaOculta = true;
   bool _carregando = false;
 
-  final String apiUrl = 'http://192.168.3.186/api/cadastro_agricultor.php';
+  final String apiUrl = 'http://10.0.0.78/api/cadastro_agricultor.php';
 
   @override
   void dispose() {
@@ -33,7 +32,9 @@ class _TelaCadastroState extends State<TelaCadastro> {
 
   Future<void> _cadastrarUsuario() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() { _carregando = true; });
+    setState(() {
+      _carregando = true;
+    });
 
     try {
       final response = await http.post(
@@ -48,9 +49,8 @@ class _TelaCadastroState extends State<TelaCadastro> {
 
       if (response.statusCode == 200 && responseData['status'] == 'success') {
         final int agricultorId = responseData['id'];
-        
+
         if (mounted) {
-          
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
@@ -63,7 +63,9 @@ class _TelaCadastroState extends State<TelaCadastro> {
         }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(responseData['message'] ?? 'Ocorreu um erro.')),
+          SnackBar(
+            content: Text(responseData['message'] ?? 'Ocorreu um erro.'),
+          ),
         );
       }
     } catch (e) {
@@ -71,7 +73,11 @@ class _TelaCadastroState extends State<TelaCadastro> {
         const SnackBar(content: Text('Não foi possível conectar ao servidor.')),
       );
     } finally {
-      if (mounted) { setState(() { _carregando = false; }); }
+      if (mounted) {
+        setState(() {
+          _carregando = false;
+        });
+      }
     }
   }
 
@@ -110,11 +116,12 @@ class _TelaCadastroState extends State<TelaCadastro> {
                   ),
                 ),
                 const SizedBox(height: 40),
-                
+
                 _buildTextField(
                   label: 'Nome',
                   controller: _nomeController,
-                  validator: (value) => value == null || value.isEmpty ? 'Insira seu nome' : null,
+                  validator: (value) =>
+                      value == null || value.isEmpty ? 'Insira seu nome' : null,
                 ),
                 const SizedBox(height: 24),
                 _buildTextField(
@@ -122,7 +129,8 @@ class _TelaCadastroState extends State<TelaCadastro> {
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
                   validator: (value) {
-                    if (value == null || value.isEmpty) return 'Insira seu email';
+                    if (value == null || value.isEmpty)
+                      return 'Insira seu email';
                     if (!value.contains('@')) return 'Insira um email válido';
                     return null;
                   },
@@ -133,13 +141,18 @@ class _TelaCadastroState extends State<TelaCadastro> {
                   controller: _senhaController,
                   obscureText: _senhaOculta,
                   validator: (value) {
-                    if (value == null || value.isEmpty) return 'Insira uma senha';
-                    if (value.length < 6) return 'A senha deve ter no mínimo 6 caracteres';
+                    if (value == null || value.isEmpty)
+                      return 'Insira uma senha';
+                    if (value.length < 6)
+                      return 'A senha deve ter no mínimo 6 caracteres';
                     return null;
                   },
                   suffixIcon: IconButton(
-                    icon: Icon(_senhaOculta ? Icons.visibility_off : Icons.visibility),
-                    onPressed: () => setState(() => _senhaOculta = !_senhaOculta),
+                    icon: Icon(
+                      _senhaOculta ? Icons.visibility_off : Icons.visibility,
+                    ),
+                    onPressed: () =>
+                        setState(() => _senhaOculta = !_senhaOculta),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -148,17 +161,26 @@ class _TelaCadastroState extends State<TelaCadastro> {
                   controller: _confirmaSenhaController,
                   obscureText: _confirmaSenhaOculta,
                   validator: (value) {
-                    if (value != _senhaController.text) return 'As senhas não coincidem';
+                    if (value != _senhaController.text)
+                      return 'As senhas não coincidem';
                     return null;
                   },
-                   suffixIcon: IconButton(
-                    icon: Icon(_confirmaSenhaOculta ? Icons.visibility_off : Icons.visibility),
-                    onPressed: () => setState(() => _confirmaSenhaOculta = !_confirmaSenhaOculta),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _confirmaSenhaOculta
+                          ? Icons.visibility_off
+                          : Icons.visibility,
+                    ),
+                    onPressed: () => setState(
+                      () => _confirmaSenhaOculta = !_confirmaSenhaOculta,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 40),
                 _carregando
-                    ? const Center(child: CircularProgressIndicator(color: Colors.white))
+                    ? const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      )
                     : ElevatedButton(
                         onPressed: _cadastrarUsuario,
                         style: ElevatedButton.styleFrom(
@@ -211,7 +233,10 @@ class _TelaCadastroState extends State<TelaCadastro> {
               borderRadius: BorderRadius.circular(8.0),
               borderSide: BorderSide.none,
             ),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16.0,
+              vertical: 12.0,
+            ),
             suffixIcon: suffixIcon,
           ),
         ),
