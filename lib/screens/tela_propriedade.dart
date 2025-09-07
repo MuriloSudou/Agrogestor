@@ -28,11 +28,11 @@ class _TelaPropriedadeState extends State<TelaPropriedade> {
 
   String get _apiUrlBase {
     if (kIsWeb) return 'http://localhost/api';
-    if (Platform.isAndroid) return 'http://10.0.2.2/api';
+    if (Platform.isAndroid) return 'http://192.168.0.250/api';
     return 'http://localhost/api';
   }
 
-  String get apiUrl => '$_apiUrlBase/cadastrar_propriedade.php';
+  String get apiUrl => '$_apiUrlBase/cadastro_propriedade.php';
 
   @override
   void dispose() {

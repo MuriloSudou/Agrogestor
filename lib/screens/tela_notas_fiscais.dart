@@ -44,14 +44,14 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
   int? _cultivoSelecionadoId;
   bool get _modoEdicao => widget.notaParaEditar != null;
 
-  // CORRIGIDO: Usa o seu IP diretamente para garantir a conexão
   String get _apiUrlBase {
-    return 'http://10.0.0.78/api';
+    return 'http://192.168.0.250/api';
   }
 
   String get apiUrlListagemCultivos => '$_apiUrlBase/listar_cultivos.php';
   String get apiUrlCadastro => '$_apiUrlBase/cadastro_nf.php';
   String get apiUrlEdicao => '$_apiUrlBase/editar_nf.php';
+  String get apiUrlExclusao => '$_apiUrlBase/deletar_nf.php';
 
   @override
   void initState() {
@@ -170,6 +170,71 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
     }
   }
 
+  Future<void> _excluirNota() async {
+    if (!_modoEdicao) return;
+
+    final confirmacao = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirmar Exclusão'),
+        content: const Text(
+          'Tem certeza que deseja excluir esta Nota Fiscal? Esta ação não pode ser desfeita.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmacao == true) {
+      setState(() {
+        _carregando = true;
+      });
+
+      try {
+        final response = await http.post(
+          Uri.parse(apiUrlExclusao),
+          body: {'id': widget.notaParaEditar!.id.toString()},
+        );
+        final responseData = jsonDecode(response.body);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(responseData['message']),
+              backgroundColor: responseData['status'] == 'success'
+                  ? Colors.green
+                  : Colors.red,
+            ),
+          );
+          if (responseData['status'] == 'success') {
+            Navigator.pop(context, true);
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Erro ao excluir: $e')));
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _carregando = false;
+          });
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -177,6 +242,28 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
         title: Text(
           _modoEdicao ? 'Editar Nota Fiscal' : 'Adicionar Nota Fiscal',
         ),
+        actions: [
+          // ADICIONADO: Botão para navegar para a tela de visualização
+          IconButton(
+            icon: const Icon(Icons.list),
+            tooltip: 'Ver todas as notas',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      TelaVisualizarNF(propriedadeId: widget.propriedadeId),
+                ),
+              );
+            },
+          ),
+          // Botão de exclusão que só aparece no modo de edição
+          if (_modoEdicao)
+            IconButton(
+              icon: const Icon(Icons.delete, color: Colors.red),
+              onPressed: _excluirNota,
+            ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),

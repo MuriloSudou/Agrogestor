@@ -25,7 +25,7 @@ class _TelaCadastroState extends State<TelaCadastro> {
     if (kIsWeb) {
       return 'http://localhost/api';
     } else if (Platform.isAndroid) {
-      return 'http://10.0.2.2/api';
+      return 'http://192.168.0.250/api';
     } else {
       return 'http://localhost/api';
     }

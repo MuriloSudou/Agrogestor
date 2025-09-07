@@ -32,7 +32,7 @@ class _TelaHomeState extends State<TelaHome> {
 
   String get _apiUrlBase {
     if (kIsWeb) return 'http://localhost/api';
-    if (Platform.isAndroid) return 'http://10.0.2.2/api';
+    if (Platform.isAndroid) return 'http://192.168.0.250/api';
     return 'http://localhost/api';
   }
 
