@@ -2,9 +2,53 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
+
+// Modelo de dados para os registos de sacas
+class SacaColhida {
+  final int id;
+  final String nomeCultivo;
+  final int quantidade;
+  final String pesoMedio;
+  final String dataColheita;
+
+  SacaColhida({
+    required this.id,
+    required this.nomeCultivo,
+    required this.quantidade,
+    required this.pesoMedio,
+    required this.dataColheita,
+  });
+
+  factory SacaColhida.fromJson(Map<String, dynamic> json) {
+    return SacaColhida(
+      id: int.parse(json['id'].toString()),
+      nomeCultivo: json['nome_cultivo'].toString(),
+      quantidade: int.parse(json['quantidade'].toString()),
+      pesoMedio: json['peso_medio_kg'].toString(),
+      dataColheita: json['data_colheita'].toString(),
+    );
+  }
+}
+
+// Modelo de dados para os cultivos no menu de seleção
+class CultivoParaSaca {
+  final int id;
+  final String cultura;
+  CultivoParaSaca({required this.id, required this.cultura});
+
+  factory CultivoParaSaca.fromJson(Map<String, dynamic> json) {
+    return CultivoParaSaca(
+      id: int.parse(json['id'].toString()),
+      cultura: json['cultura'].toString(),
+    );
+  }
+}
 
 class TelaSacas extends StatefulWidget {
-  const TelaSacas({super.key});
+  final int propriedadeId;
+  const TelaSacas({super.key, required this.propriedadeId});
 
   @override
   State<TelaSacas> createState() => _TelaSacasState();
@@ -12,31 +56,87 @@ class TelaSacas extends StatefulWidget {
 
 class _TelaSacasState extends State<TelaSacas> {
   final _formKey = GlobalKey<FormState>();
-  final _cultivoController = TextEditingController();
   final _sacksController = TextEditingController();
+  final _pesoController = TextEditingController();
   final _dataController = TextEditingController();
   DateTime? _dataSelecionada;
+  int? _cultivoSelecionadoId;
 
-  // Lista para armazenar as sacas cadastradas
-  List<Map<String, dynamic>> _sacks = [];
+  List<SacaColhida> _sacas = [];
+  List<CultivoParaSaca> _cultivosDisponiveis = [];
 
-  // Índice da saca que está sendo editada
-  int? _indiceEdicao;
+  bool _carregando = true;
 
-  // Controle de loading
-  bool _carregando = false;
+  String get _apiUrlBase {
+    if (kIsWeb) return 'http://localhost/api';
+    if (Platform.isAndroid) return 'http://10.0.2.2/api';
+    return 'http://localhost/api';
+  }
 
-  // URL da API (substitua pelas suas rotas reais)
-  final String apiUrlCadastro = 'http://10.0.0.78/api/cadastro_sacas.php';
-  final String apiUrlEdicao = 'http://10.0.0.78/api/editar_saca.php';
-  final String apiUrlExclusao = 'http://10.0.0.78/api/excluir_saca.php';
+  String get apiUrlListarSacas => '$_apiUrlBase/listar_sacas.php';
+  String get apiUrlListarCultivos => '$_apiUrlBase/listar_cultivos.php';
+  String get apiUrlCadastro => '$_apiUrlBase/cadastrar_saca.php';
+  String get apiUrlExclusao => '$_apiUrlBase/excluir_saca.php';
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarDadosIniciais();
+  }
 
   @override
   void dispose() {
-    _cultivoController.dispose();
     _sacksController.dispose();
+    _pesoController.dispose();
     _dataController.dispose();
     super.dispose();
+  }
+
+  Future<void> _carregarDadosIniciais() async {
+    setState(() {
+      _carregando = true;
+    });
+    await Future.wait([_carregarSacas(), _carregarCultivos()]);
+    if (mounted)
+      setState(() {
+        _carregando = false;
+      });
+  }
+
+  Future<void> _carregarSacas() async {
+    try {
+      final uri = Uri.parse(
+        '$apiUrlListarSacas?propriedade_id=${widget.propriedadeId}',
+      );
+      final response = await http.get(uri);
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        setState(() {
+          _sacas = data.map((json) => SacaColhida.fromJson(json)).toList();
+        });
+      }
+    } catch (e) {
+      // Tratar erro
+    }
+  }
+
+  Future<void> _carregarCultivos() async {
+    try {
+      final uri = Uri.parse(
+        '$apiUrlListarCultivos?propriedade_id=${widget.propriedadeId}',
+      );
+      final response = await http.get(uri);
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        setState(() {
+          _cultivosDisponiveis = data
+              .map((json) => CultivoParaSaca.fromJson(json))
+              .toList();
+        });
+      }
+    } catch (e) {
+      // Tratar erro
+    }
   }
 
   Future<void> _selecionarData(BuildContext context) async {
@@ -56,162 +156,120 @@ class _TelaSacasState extends State<TelaSacas> {
   }
 
   void _limparCampos() {
-    _cultivoController.clear();
+    _formKey.currentState?.reset();
     _sacksController.clear();
+    _pesoController.clear();
     _dataController.clear();
     setState(() {
       _dataSelecionada = null;
-      _indiceEdicao = null;
+      _cultivoSelecionadoId = null;
     });
   }
 
-  Future<void> _salvarOuAtualizarSaca() async {
-    if (!_formKey.currentState!.validate() || _dataSelecionada == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Preencha todos os campos e selecione uma data.'),
-        ),
-      );
-      return;
-    }
+  Future<void> _salvarSaca() async {
+    if (!_formKey.currentState!.validate()) return;
 
     setState(() {
       _carregando = true;
     });
 
-    final sacaDados = {
-      'cultivo': _cultivoController.text,
-      'sacks': _sacksController.text,
-      'data': DateFormat('yyyy-MM-dd').format(_dataSelecionada!),
-    };
-
     try {
-      // Fallback local (funciona sem API)
-      final dadosParaLista = {
-        ...sacaDados,
-        'data': DateFormat('dd/MM/yyyy').format(_dataSelecionada!),
-      };
-
-      if (_indiceEdicao == null) {
-        _sacks.add(dadosParaLista);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Saca salva com sucesso!')),
-        );
-      } else {
-        _sacks[_indiceEdicao!] = dadosParaLista;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Saca editada com sucesso!')),
-        );
-      }
-
-      _limparCampos();
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erro ao salvar saca: $e'),
-          backgroundColor: Colors.red,
-        ),
+      final response = await http.post(
+        Uri.parse(apiUrlCadastro),
+        body: {
+          'cultivo_id': _cultivoSelecionadoId.toString(),
+          'quantidade': _sacksController.text,
+          'peso_medio_kg': _pesoController.text.replaceAll(',', '.'),
+          'data_colheita': DateFormat('yyyy-MM-dd').format(_dataSelecionada!),
+        },
       );
-    } finally {
+      final responseData = jsonDecode(response.body);
+
       if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(responseData['message']),
+            backgroundColor: responseData['status'] == 'success'
+                ? Colors.green
+                : Colors.red,
+          ),
+        );
+        if (responseData['status'] == 'success') {
+          _limparCampos();
+          _carregarDadosIniciais();
+        }
+      }
+    } catch (e) {
+      // Tratar erro
+    } finally {
+      if (mounted)
         setState(() {
           _carregando = false;
         });
-      }
     }
   }
 
-  void _editarSaca(int index) {
-    setState(() {
-      _indiceEdicao = index;
-      _cultivoController.text = _sacks[index]['cultivo'];
-      _sacksController.text = _sacks[index]['sacks'];
-      _dataSelecionada = DateFormat('dd/MM/yyyy').parse(_sacks[index]['data']);
-      _dataController.text = _sacks[index]['data'];
-    });
-  }
-
-  Future<void> _excluirSaca(int index) async {
-    setState(() {
-      _sacks.removeAt(index);
-    });
-
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Saca excluída com sucesso!')));
-  }
-
-  double _calcularTotalSacas() {
-    return _sacks.fold(0.0, (sum, saca) {
-      return sum + (double.tryParse(saca['sacks'] ?? '0') ?? 0);
-    });
+  Future<void> _excluirSaca(int sacaId) async {
+    try {
+      final response = await http.post(
+        Uri.parse(apiUrlExclusao),
+        body: {'id': sacaId.toString()},
+      );
+      final data = jsonDecode(response.body);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(data['message']),
+            backgroundColor: data['status'] == 'success'
+                ? Colors.green
+                : Colors.red,
+          ),
+        );
+        if (data['status'] == 'success') {
+          _carregarDadosIniciais();
+        }
+      }
+    } catch (e) {
+      // Tratar erro
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     const Color primaryColor = Color(0xFF024222);
-    const Color accentColor = Color.fromARGB(255, 5, 67, 34);
     const Color buttonColor = Color(0xFF333333);
-    const Color formBackgroundColor = Colors.white;
-
-    final Map<String, double> sacasPorCultivo = {};
-    for (var saca in _sacks) {
-      final String cultivo = saca['cultivo'];
-      final double quantidade = double.tryParse(saca['sacks'] ?? '0') ?? 0;
-      sacasPorCultivo.update(
-        cultivo,
-        (value) => value + quantidade,
-        ifAbsent: () => quantidade,
-      );
-    }
 
     return Scaffold(
-      backgroundColor: const Color.fromARGB(255, 255, 255, 255),
+      backgroundColor: Colors.white,
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // --- Cabeçalho AgroGestor ---
             Container(
-              color: const Color.fromARGB(255, 5, 67, 34),
+              color: primaryColor,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(
-                    'AgroGestor',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  Image.asset('lib/img/img1/logogeral.png', height: 60),
                 ],
               ),
             ),
             const SizedBox(height: 20),
-
-            // --- Título e Slogan ---
             const Text(
               'Gestão da Colheita',
-              style: TextStyle(
-                color: Color.fromARGB(255, 0, 0, 0),
-                fontSize: 40,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 10),
             const Text(
-              "\"Gestão precisa da colheita para um campo mais rentável!\"",
+              "\"Registe a sua colheita para um campo mais rentável!\"",
               style: TextStyle(
-                color: Color.fromARGB(179, 26, 25, 25),
                 fontSize: 18,
                 fontStyle: FontStyle.italic,
+                color: Colors.black54,
               ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 40),
-
-            // --- Conteúdo Principal (Formulário e Lista) ---
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 40.0),
               child: Column(
@@ -220,7 +278,7 @@ class _TelaSacasState extends State<TelaSacas> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(24.0),
                     decoration: BoxDecoration(
-                      color: formBackgroundColor,
+                      color: Colors.white,
                       borderRadius: BorderRadius.circular(16.0),
                       boxShadow: [
                         BoxShadow(
@@ -234,130 +292,84 @@ class _TelaSacasState extends State<TelaSacas> {
                       key: _formKey,
                       child: Column(
                         children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('Cultura'),
-                                    TextFormField(
-                                      controller: _cultivoController,
-                                      decoration: const InputDecoration(
-                                        border: OutlineInputBorder(),
-                                        focusedBorder: OutlineInputBorder(
-                                          borderSide: BorderSide(
-                                            color: primaryColor,
-                                          ),
-                                        ),
-                                      ),
-                                      validator: (value) => value!.isEmpty
-                                          ? 'Campo obrigatório'
-                                          : null,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('Número de Sacas'),
-                                    TextFormField(
-                                      controller: _sacksController,
-                                      decoration: const InputDecoration(
-                                        border: OutlineInputBorder(),
-                                        focusedBorder: OutlineInputBorder(
-                                          borderSide: BorderSide(
-                                            color: primaryColor,
-                                          ),
-                                        ),
-                                      ),
-                                      keyboardType: TextInputType.number,
-                                      validator: (value) => value!.isEmpty
-                                          ? 'Campo obrigatório'
-                                          : null,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('Data'),
-                                    TextFormField(
-                                      controller: _dataController,
-                                      decoration: const InputDecoration(
-                                        border: OutlineInputBorder(),
-                                        focusedBorder: OutlineInputBorder(
-                                          borderSide: BorderSide(
-                                            color: primaryColor,
-                                          ),
-                                        ),
-                                      ),
-                                      readOnly: true,
-                                      onTap: () => _selecionarData(context),
-                                      validator: (value) => value!.isEmpty
-                                          ? 'Campo obrigatório'
-                                          : null,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
+                          DropdownButtonFormField<int>(
+                            value: _cultivoSelecionadoId,
+                            decoration: const InputDecoration(
+                              labelText: 'Cultivo*',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: _cultivosDisponiveis.map((cultivo) {
+                              return DropdownMenuItem<int>(
+                                value: cultivo.id,
+                                child: Text(cultivo.cultura),
+                              );
+                            }).toList(),
+                            onChanged: (value) =>
+                                setState(() => _cultivoSelecionadoId = value),
+                            validator: (v) =>
+                                v == null ? 'Selecione um cultivo' : null,
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _sacksController,
+                            decoration: const InputDecoration(
+                              labelText: 'Nº de Sacas*',
+                              border: OutlineInputBorder(),
+                            ),
+                            keyboardType: TextInputType.number,
+                            validator: (v) =>
+                                v!.isEmpty ? 'Campo obrigatório' : null,
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _pesoController,
+                            decoration: const InputDecoration(
+                              labelText: 'Peso Médio por Saca (kg)*',
+                              border: OutlineInputBorder(),
+                            ),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            validator: (v) =>
+                                v!.isEmpty ? 'Campo obrigatório' : null,
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _dataController,
+                            decoration: const InputDecoration(
+                              labelText: 'Data da Colheita*',
+                              border: OutlineInputBorder(),
+                            ),
+                            readOnly: true,
+                            onTap: () => _selecionarData(context),
+                            validator: (v) =>
+                                v!.isEmpty ? 'Campo obrigatório' : null,
                           ),
                           const SizedBox(height: 20),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              ElevatedButton(
-                                onPressed: _carregando
-                                    ? null
-                                    : _salvarOuAtualizarSaca,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: buttonColor,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 24,
-                                    vertical: 16,
+                          _carregando
+                              ? const CircularProgressIndicator()
+                              : ElevatedButton(
+                                  onPressed: _salvarSaca,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: buttonColor,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 24,
+                                      vertical: 16,
+                                    ),
                                   ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
+                                  child: const Text('Salvar Registo'),
                                 ),
-                                child: _carregando
-                                    ? const SizedBox(
-                                        height: 20,
-                                        width: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : Text(
-                                        _indiceEdicao == null
-                                            ? 'Salvar'
-                                            : 'Atualizar',
-                                      ),
-                              ),
-                              const SizedBox(width: 10),
-                            ],
-                          ),
                         ],
                       ),
                     ),
                   ),
                   const SizedBox(height: 40),
-                  // --- Lista de Sacas Cadastradas ---
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(24.0),
                     decoration: BoxDecoration(
-                      color: formBackgroundColor,
+                      color: Colors.white,
                       borderRadius: BorderRadius.circular(16.0),
                       boxShadow: [
                         BoxShadow(
@@ -371,49 +383,46 @@ class _TelaSacasState extends State<TelaSacas> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Detalhes das Sacas:',
+                          'Colheitas Registadas:',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                         const SizedBox(height: 16.0),
-                        _sacks.isEmpty
+                        _carregando
+                            ? const Center(child: CircularProgressIndicator())
+                            : _sacas.isEmpty
                             ? const Center(
-                                child: Text('Nenhuma saca cadastrada.'),
+                                child: Text('Nenhum registo de colheita.'),
                               )
                             : ListView.builder(
                                 shrinkWrap: true,
                                 physics: const NeverScrollableScrollPhysics(),
-                                itemCount: _sacks.length,
+                                itemCount: _sacas.length,
                                 itemBuilder: (context, index) {
-                                  final saca = _sacks[index];
+                                  final saca = _sacas[index];
+                                  final dataFormatada = DateFormat(
+                                    'dd/MM/yyyy',
+                                  ).format(DateTime.parse(saca.dataColheita));
                                   return Card(
                                     margin: const EdgeInsets.only(bottom: 8),
                                     child: ListTile(
-                                      title: Text(saca['cultivo']),
-                                      subtitle: Text(
-                                        'Número de Sacas: ${saca['sacks'] ?? 'N/A'} | Data: ${saca['data'] ?? 'N/A'}',
+                                      title: Text(
+                                        saca.nomeCultivo,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                        ),
                                       ),
-                                      trailing: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.edit,
-                                              color: Colors.blue,
-                                            ),
-                                            onPressed: () => _editarSaca(index),
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.delete,
-                                              color: Colors.red,
-                                            ),
-                                            onPressed: () =>
-                                                _excluirSaca(index),
-                                          ),
-                                        ],
+                                      subtitle: Text(
+                                        '${saca.quantidade} sacas | ${saca.pesoMedio} kg/saca | Colhido em: $dataFormatada',
+                                      ),
+                                      trailing: IconButton(
+                                        icon: const Icon(
+                                          Icons.delete,
+                                          color: Colors.red,
+                                        ),
+                                        onPressed: () => _excluirSaca(saca.id),
                                       ),
                                     ),
                                   );
@@ -425,22 +434,21 @@ class _TelaSacasState extends State<TelaSacas> {
                 ],
               ),
             ),
+            const SizedBox(height: 40),
           ],
         ),
       ),
       bottomNavigationBar: Container(
         padding: const EdgeInsets.all(24),
-        color: const Color.fromARGB(255, 255, 255, 255),
+        color: Colors.white,
         child: ElevatedButton(
           onPressed: () => Navigator.pop(context),
           style: ElevatedButton.styleFrom(
             backgroundColor: primaryColor,
             foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
+            minimumSize: const Size(double.infinity, 50),
           ),
-          child: const Text('Voltar ao Inicio'),
+          child: const Text('Voltar'),
         ),
       ),
     );

@@ -2,9 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:intl/intl.dart';
-import 'tela_visualizar_nf.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'tela_visualizar_nf.dart';
+
+class CultivoDropdown {
+  final int id;
+  final String cultura;
+  CultivoDropdown({required this.id, required this.cultura});
+  factory CultivoDropdown.fromJson(Map<String, dynamic> json) {
+    return CultivoDropdown(
+      id: int.parse(json['id'].toString()),
+      cultura: json['cultura'].toString(),
+    );
+  }
+}
 
 class TelaNotasFiscais extends StatefulWidget {
   final int propriedadeId;
@@ -26,27 +38,17 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
   final _valorController = TextEditingController();
   DateTime? _dataSelecionada;
   bool _carregando = false;
-  bool _inicializando = true;
+  bool _carregandoCultivos = true;
 
-  // Variáveis para a lista de cultivos e o cultivo selecionado
-  List<Map<String, dynamic>> _cultivos = [];
+  List<CultivoDropdown> _cultivos = [];
   int? _cultivoSelecionadoId;
   bool get _modoEdicao => widget.notaParaEditar != null;
 
+  // CORRIGIDO: Usa o seu IP diretamente para garantir a conexão
   String get _apiUrlBase {
-    if (kIsWeb) {
-      return 'http://localhost/api';
-    } else {
-      if (Platform.isAndroid) {
-        return 'http://10.0.2.2/api';
-      } else {
-        // Para iOS ou outros, você pode precisar de outro IP
-        return 'http://localhost/api';
-      }
-    }
+    return 'http://10.0.0.78/api';
   }
 
-  // URL da API (substitua pelas suas rotas reais)
   String get apiUrlListagemCultivos => '$_apiUrlBase/listar_cultivos.php';
   String get apiUrlCadastro => '$_apiUrlBase/cadastro_nf.php';
   String get apiUrlEdicao => '$_apiUrlBase/editar_nf.php';
@@ -54,14 +56,14 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
   @override
   void initState() {
     super.initState();
-    _listarCultivos();
     if (_modoEdicao) {
       final nota = widget.notaParaEditar!;
       _numeroNotaController.text = nota.numero;
       _valorController.text = nota.valor.replaceAll(',', '.');
-      _dataSelecionada = DateFormat('dd/MM/yyyy').parse(nota.dataEmissao);
-      _cultivoSelecionadoId = int.tryParse(nota.cultivoId);
+      _dataSelecionada = DateTime.parse(nota.dataEmissao);
+      _cultivoSelecionadoId = nota.cultivoId;
     }
+    _listarCultivos();
   }
 
   @override
@@ -73,40 +75,34 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
 
   Future<void> _listarCultivos() async {
     setState(() {
-      _inicializando = true;
+      _carregandoCultivos = true;
     });
     try {
-      // Faz a requisição POST para a API, passando o propriedadeId
-      final response = await http.post(
-        Uri.parse(apiUrlListagemCultivos),
-        body: {'propriedade_id': widget.propriedadeId.toString()},
+      final uri = Uri.parse(
+        '$apiUrlListagemCultivos?propriedade_id=${widget.propriedadeId}',
       );
+      final response = await http.get(uri);
       if (response.statusCode == 200) {
-        final dynamic data = jsonDecode(response.body);
-        if (data is List) {
-          setState(() {
-            _cultivos = List<Map<String, dynamic>>.from(data);
-          });
-        } else {
-          // Se a resposta não for uma lista, limpa a lista de cultivos
-          setState(() {
-            _cultivos = [];
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Nenhum cultivo cadastrado ou erro na API.'),
-            ),
-          );
-        }
+        final List<dynamic> data = jsonDecode(response.body);
+        setState(() {
+          _cultivos = data
+              .map((json) => CultivoDropdown.fromJson(json))
+              .toList();
+          if (_modoEdicao && _cultivoSelecionadoId != null) {
+            final idsDisponiveis = _cultivos.map((c) => c.id).toList();
+            if (!idsDisponiveis.contains(_cultivoSelecionadoId)) {
+              _cultivoSelecionadoId = null;
+            }
+          }
+        });
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Erro ao carregar cultivos: $e')));
+      // Tratar erro
     } finally {
-      setState(() {
-        _inicializando = false;
-      });
+      if (mounted)
+        setState(() {
+          _carregandoCultivos = false;
+        });
     }
   }
 
@@ -125,11 +121,7 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
         _dataSelecionada == null ||
         _cultivoSelecionadoId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Preencha todos os campos e selecione um cultivo e uma data.',
-          ),
-        ),
+        const SnackBar(content: Text('Preencha todos os campos obrigatórios.')),
       );
       return;
     }
@@ -138,9 +130,7 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
       _carregando = true;
     });
 
-    final String url = _modoEdicao
-        ? '$_apiUrlBase/editar_nf.php'
-        : '$_apiUrlBase/cadastro_nf.php';
+    final String url = _modoEdicao ? apiUrlEdicao : apiUrlCadastro;
     final Map<String, String> body = {
       'propriedade_id': widget.propriedadeId.toString(),
       'cultivo_id': _cultivoSelecionadoId.toString(),
@@ -155,47 +145,29 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
     try {
       final response = await http.post(Uri.parse(url), body: body);
       final responseData = jsonDecode(response.body);
-
-      if (responseData['status'] == 'success') {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(responseData['message']),
-            backgroundColor: Colors.green,
+            backgroundColor:
+                (responseData['status'] == 'success' ||
+                    responseData['status'] == 'info')
+                ? Colors.green
+                : Colors.red,
           ),
         );
-
-        if (mounted) Navigator.pop(context, true);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(responseData['message']),
-            backgroundColor: Colors.red,
-          ),
-        );
+        if (responseData['status'] == 'success') Navigator.pop(context, true);
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erro ao conectar com a API: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erro ao salvar: $e')));
     } finally {
       if (mounted)
         setState(() {
           _carregando = false;
         });
     }
-  }
-
-  void _navegarParaVisualizacao() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) =>
-            TelaVisualizarNF(propriedadeId: widget.propriedadeId),
-      ),
-    );
   }
 
   @override
@@ -215,69 +187,68 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
             children: [
               TextFormField(
                 controller: _numeroNotaController,
-                decoration: const InputDecoration(labelText: 'Número da Nota'),
+                decoration: const InputDecoration(
+                  labelText: 'Número da Nota',
+                  border: OutlineInputBorder(),
+                ),
                 validator: (v) => v!.isEmpty ? 'Campo obrigatório' : null,
               ),
               const SizedBox(height: 16),
-              if (_inicializando)
-                const Center(child: CircularProgressIndicator())
-              else if (_cultivos.isEmpty)
-                const Center(child: Text('Nenhum cultivo cadastrado.'))
-              else
-                DropdownButtonFormField<int>(
-                  decoration: const InputDecoration(labelText: 'Cultivo'),
-                  value: _cultivoSelecionadoId,
-                  items: _cultivos.map<DropdownMenuItem<int>>((cultivo) {
-                    return DropdownMenuItem<int>(
-                      value: int.tryParse(cultivo['id'].toString()),
-                      child: Text(cultivo['cultura']),
-                    );
-                  }).toList(),
-                  onChanged: (int? newValue) {
-                    setState(() {
-                      _cultivoSelecionadoId = newValue;
-                    });
-                  },
-                  validator: (value) =>
-                      value == null ? 'Selecione um cultivo' : null,
-                ),
+              _carregandoCultivos
+                  ? const Center(child: CircularProgressIndicator())
+                  : DropdownButtonFormField<int>(
+                      decoration: const InputDecoration(
+                        labelText: 'Associar ao Cultivo',
+                        border: OutlineInputBorder(),
+                      ),
+                      value: _cultivoSelecionadoId,
+                      items: _cultivos.map<DropdownMenuItem<int>>((cultivo) {
+                        return DropdownMenuItem<int>(
+                          value: cultivo.id,
+                          child: Text(cultivo.cultura),
+                        );
+                      }).toList(),
+                      onChanged: (int? newValue) {
+                        setState(() => _cultivoSelecionadoId = newValue);
+                      },
+                      validator: (v) =>
+                          v == null ? 'Selecione um cultivo' : null,
+                    ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _valorController,
-                decoration: const InputDecoration(labelText: 'Valor (R\$)'),
+                decoration: const InputDecoration(
+                  labelText: 'Valor (R\$)',
+                  border: OutlineInputBorder(),
+                ),
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
                 validator: (v) => v!.isEmpty ? 'Campo obrigatório' : null,
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               OutlinedButton.icon(
                 icon: const Icon(Icons.calendar_today),
                 label: Text(
                   _dataSelecionada == null
-                      ? 'Selecionar Data'
+                      ? 'Selecionar Data de Emissão'
                       : DateFormat('dd/MM/yyyy').format(_dataSelecionada!),
                 ),
                 onPressed: () => _selecionarData(context),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
               ),
-              const SizedBox(height: 32),
-              if (_carregando)
-                const Center(child: CircularProgressIndicator())
-              else
-                ElevatedButton(
-                  onPressed: _salvarOuAtualizar,
-                  child: Text(_modoEdicao ? 'Atualizar NF' : 'Salvar NF'),
-                ),
-              if (!_modoEdicao) ...[
-                const SizedBox(height: 12),
-                ElevatedButton(
-                  onPressed: _navegarParaVisualizacao,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                  ),
-                  child: const Text('Visualizar NFs Cadastradas'),
-                ),
-              ],
+              const SizedBox(height: 24),
+              _carregando
+                  ? const Center(child: CircularProgressIndicator())
+                  : ElevatedButton(
+                      onPressed: _salvarOuAtualizar,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: Text(_modoEdicao ? 'Atualizar' : 'Salvar'),
+                    ),
             ],
           ),
         ),

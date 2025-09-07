@@ -3,13 +3,23 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'tela_home.dart';
 import 'tela_propriedade.dart';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 class Propriedade {
   final int id;
   final String nome;
-  Propriedade({required this.id, required this.nome});
+  final String area;
+
+  Propriedade({required this.id, required this.nome, required this.area});
+
+  // CORRIGIDO: Nomes das chaves para corresponder ao JSON da API
   factory Propriedade.fromJson(Map<String, dynamic> json) {
-    return Propriedade(id: json['id'], nome: json['nome']);
+    return Propriedade(
+      id: int.parse(json['id'].toString()),
+      nome: json['nome_propriedade'].toString(),
+      area: json['area_ha'].toString(),
+    );
   }
 }
 
@@ -32,7 +42,13 @@ class _TelaSelecaoPropriedadeState extends State<TelaSelecaoPropriedade> {
   int? _propriedadeSelecionadaId;
   bool _carregando = true;
 
-  final String apiUrl = 'http://10.0.0.78/api/listar_propriedades.php';
+  String get _apiUrlBase {
+    if (kIsWeb) return 'http://localhost/api';
+    if (Platform.isAndroid) return 'http://10.0.2.2/api';
+    return 'http://localhost/api';
+  }
+
+  String get apiUrl => '$_apiUrlBase/listar_propriedades.php';
 
   @override
   void initState() {
@@ -45,13 +61,13 @@ class _TelaSelecaoPropriedadeState extends State<TelaSelecaoPropriedade> {
       _carregando = true;
     });
     try {
-      final response = await http.post(
-        Uri.parse(apiUrl),
-        body: {'agricultor_id': widget.agricultorId.toString()},
-      );
-      final responseData = jsonDecode(response.body);
-      if (responseData['status'] == 'success') {
-        List<dynamic> propriedadesJson = responseData['data'];
+      // CORRIGIDO: Usa http.get e passa o ID na URL
+      final uri = Uri.parse('$apiUrl?agricultor_id=${widget.agricultorId}');
+      final response = await http.get(uri);
+
+      if (response.statusCode == 200) {
+        // CORRIGIDO: A API agora retorna uma lista JSON diretamente
+        final List<dynamic> propriedadesJson = jsonDecode(response.body);
         setState(() {
           _listaPropriedades = propriedadesJson
               .map((json) => Propriedade.fromJson(json))
@@ -61,9 +77,10 @@ class _TelaSelecaoPropriedadeState extends State<TelaSelecaoPropriedade> {
     } catch (e) {
       // Tratar erro
     } finally {
-      setState(() {
-        _carregando = false;
-      });
+      if (mounted)
+        setState(() {
+          _carregando = false;
+        });
     }
   }
 
@@ -74,18 +91,22 @@ class _TelaSelecaoPropriedadeState extends State<TelaSelecaoPropriedade> {
       );
       return;
     }
-    // Passa o ID da propriedade selecionada para a TelaHome.
-    Navigator.pushReplacement(
+    Navigator.push(
+      // Usa push em vez de pushReplacement para poder voltar
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            TelaHome(propriedadeId: _propriedadeSelecionadaId!),
+        builder: (context) => TelaHome(
+          propriedadeId: _propriedadeSelecionadaId!,
+          // Passando também o nome do agricultor para a TelaHome
+          nomeAgricultor: widget.nomeAgricultor,
+        ),
       ),
     );
   }
 
   void _navegarParaCadastroPropriedade() async {
-    await Navigator.push(
+    // CORRIGIDO: Espera o resultado da tela de cadastro
+    final resultado = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (context) => TelaPropriedade(
@@ -94,7 +115,10 @@ class _TelaSelecaoPropriedadeState extends State<TelaSelecaoPropriedade> {
         ),
       ),
     );
-    _buscarPropriedades();
+    // Se o resultado for 'true', significa que um cadastro foi salvo com sucesso
+    if (resultado == true) {
+      _buscarPropriedades(); // Atualiza a lista
+    }
   }
 
   @override
@@ -102,7 +126,7 @@ class _TelaSelecaoPropriedadeState extends State<TelaSelecaoPropriedade> {
     return Scaffold(
       appBar: AppBar(
         title: Text('Bem-vindo, ${widget.nomeAgricultor}'),
-        automaticallyImplyLeading: false,
+        automaticallyImplyLeading: false, // Remove a seta de voltar
       ),
       body: _carregando
           ? const Center(child: CircularProgressIndicator())
@@ -134,6 +158,7 @@ class _TelaSelecaoPropriedadeState extends State<TelaSelecaoPropriedade> {
                                 return Card(
                                   child: RadioListTile<int>(
                                     title: Text(propriedade.nome),
+                                    subtitle: Text('${propriedade.area} ha'),
                                     value: propriedade.id,
                                     groupValue: _propriedadeSelecionadaId,
                                     onChanged: (value) {
@@ -157,7 +182,9 @@ class _TelaSelecaoPropriedadeState extends State<TelaSelecaoPropriedade> {
                     ),
                     const SizedBox(height: 10),
                     ElevatedButton(
-                      onPressed: _navegarParaHome,
+                      onPressed: _propriedadeSelecionadaId != null
+                          ? _navegarParaHome
+                          : null, // Desabilita se nada estiver selecionado
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green,
                         padding: const EdgeInsets.symmetric(vertical: 16),

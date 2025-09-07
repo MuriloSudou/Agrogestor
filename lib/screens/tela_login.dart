@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'tela_cadastro.dart';
 import 'package:agrogestor/screens/tela_selecao_propriedade.dart';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 class TelaLogin extends StatefulWidget {
   const TelaLogin({super.key});
@@ -18,7 +20,17 @@ class _TelaLoginState extends State<TelaLogin> {
   bool _senhaOculta = true;
   bool _carregando = false;
 
-  final String apiUrl = 'http://10.0.0.78/api/login_agricultor.php';
+  String get _apiUrlBase {
+    if (kIsWeb) {
+      return 'http://localhost/api';
+    } else if (Platform.isAndroid) {
+      return 'http://10.0.2.2/api';
+    } else {
+      return 'http://localhost/api';
+    }
+  }
+
+  String get apiUrl => '$_apiUrlBase/login_agricultor.php';
 
   @override
   void dispose() {
@@ -45,7 +57,9 @@ class _TelaLoginState extends State<TelaLogin> {
       final responseData = jsonDecode(response.body);
 
       if (response.statusCode == 200 && responseData['status'] == 'success') {
-        final int agricultorId = responseData['data']['id'];
+        final int agricultorId = int.parse(
+          responseData['data']['id'].toString(),
+        );
         final String nomeAgricultor = responseData['data']['nome'];
 
         if (!mounted) return;
@@ -116,14 +130,13 @@ class _TelaLoginState extends State<TelaLogin> {
                         decoration: const InputDecoration(
                           labelText: 'Email',
                           border: OutlineInputBorder(),
-                          focusedBorder: OutlineInputBorder(
-                            borderSide: BorderSide(color: primaryColor),
-                          ),
+                          prefixIcon: Icon(Icons.email),
                         ),
                         keyboardType: TextInputType.emailAddress,
                         validator: (v) {
                           if (v == null || v.isEmpty) return 'Insira seu email';
-                          if (!v.contains('@')) return 'Insira um email válido';
+                          if (!v.contains('@') || !v.contains('.'))
+                            return 'Insira um email válido';
                           return null;
                         },
                       ),
@@ -134,9 +147,7 @@ class _TelaLoginState extends State<TelaLogin> {
                         decoration: InputDecoration(
                           labelText: 'Senha',
                           border: const OutlineInputBorder(),
-                          focusedBorder: const OutlineInputBorder(
-                            borderSide: BorderSide(color: primaryColor),
-                          ),
+                          prefixIcon: const Icon(Icons.lock),
                           suffixIcon: IconButton(
                             icon: Icon(
                               _senhaOculta

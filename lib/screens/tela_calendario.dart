@@ -1,42 +1,121 @@
 import 'package:flutter/material.dart';
-import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:intl/intl.dart';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
+
+// Modelo de dados para os eventos
+class EventoCalendario {
+  final int id;
+  final DateTime data;
+  final String titulo;
+  final String descricao;
+
+  EventoCalendario({
+    required this.id,
+    required this.data,
+    required this.titulo,
+    required this.descricao,
+  });
+
+  factory EventoCalendario.fromJson(Map<String, dynamic> json) {
+    return EventoCalendario(
+      id: int.parse(json['id'].toString()),
+      data: DateTime.parse(json['data_evento'].toString()),
+      titulo: json['titulo_evento'].toString(),
+      descricao: json['descricao_evento'].toString(),
+    );
+  }
+}
 
 class TelaCalendario extends StatefulWidget {
-  const TelaCalendario({super.key});
+  final int propriedadeId;
+
+  const TelaCalendario({super.key, required this.propriedadeId});
 
   @override
   State<TelaCalendario> createState() => _TelaCalendarioState();
 }
 
 class _TelaCalendarioState extends State<TelaCalendario> {
-  // Controladores para os campos de texto do formulário
-  final _cultivoController = TextEditingController();
-  final _descricaoController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  final _tituloController = TextEditingController();
+  final _descricaoController = TextEditingController();
 
-  // Estado para controlar a data selecionada e o mês atual
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
 
-  // Mapa para armazenar os eventos. A chave é a data e o valor é uma lista de eventos.
-  Map<DateTime, List<Map<String, String>>> _events = {};
-  bool _carregando = false;
+  // ATUALIZADO: A fonte dos eventos agora é a API
+  Map<DateTime, List<EventoCalendario>> _events = {};
+  bool _carregando = true;
+
+  String get _apiUrlBase {
+    if (kIsWeb) return 'http://localhost/api';
+    if (Platform.isAndroid) return 'http://10.0.2.2/api';
+    return 'http://localhost/api';
+  }
+
+  String get apiUrlListar => '$_apiUrlBase/listar_eventos.php';
+  String get apiUrlCadastrar => '$_apiUrlBase/cadastrar_evento.php';
+  String get apiUrlExcluir => '$_apiUrlBase/excluir_evento.php';
 
   @override
   void initState() {
     super.initState();
     _selectedDay = _focusedDay;
+    _carregarEventos();
   }
 
   @override
   void dispose() {
-    _cultivoController.dispose();
+    _tituloController.dispose();
     _descricaoController.dispose();
     super.dispose();
   }
 
-  // Função chamada ao selecionar um dia no calendário
+  Future<void> _carregarEventos() async {
+    setState(() {
+      _carregando = true;
+    });
+    try {
+      final uri = Uri.parse(
+        '$apiUrlListar?propriedade_id=${widget.propriedadeId}',
+      );
+      final response = await http.get(uri);
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        final List<EventoCalendario> eventosCarregados = data
+            .map((json) => EventoCalendario.fromJson(json))
+            .toList();
+
+        final Map<DateTime, List<EventoCalendario>> eventosMapeados = {};
+        for (var evento in eventosCarregados) {
+          final dia = DateTime.utc(
+            evento.data.year,
+            evento.data.month,
+            evento.data.day,
+          );
+          if (eventosMapeados[dia] == null) {
+            eventosMapeados[dia] = [];
+          }
+          eventosMapeados[dia]!.add(evento);
+        }
+
+        setState(() {
+          _events = eventosMapeados;
+        });
+      }
+    } catch (e) {
+      // Tratar erro
+    } finally {
+      if (mounted)
+        setState(() {
+          _carregando = false;
+        });
+    }
+  }
+
   void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
     if (!isSameDay(_selectedDay, selectedDay)) {
       setState(() {
@@ -46,17 +125,11 @@ class _TelaCalendarioState extends State<TelaCalendario> {
     }
   }
 
-  // Função para adicionar um novo evento
   Future<void> _adicionarEvento() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-
-    if (_selectedDay == null) {
+    if (!_formKey.currentState!.validate() || _selectedDay == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Por favor, selecione uma data.'),
-          backgroundColor: Colors.red,
+          content: Text('Preencha todos os campos e selecione uma data.'),
         ),
       );
       return;
@@ -67,97 +140,82 @@ class _TelaCalendarioState extends State<TelaCalendario> {
     });
 
     try {
-      // Cria o novo evento com base nos dados do formulário
-      final newEvent = {
-        'cultivo': _cultivoController.text,
-        'descricao': _descricaoController.text,
-      };
-
-      // Simula o salvamento em um banco de dados
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      final day = DateTime(
-        _selectedDay!.year,
-        _selectedDay!.month,
-        _selectedDay!.day,
+      final response = await http.post(
+        Uri.parse(apiUrlCadastrar),
+        body: {
+          'propriedade_id': widget.propriedadeId.toString(),
+          'data_evento': DateFormat('yyyy-MM-dd').format(_selectedDay!),
+          'titulo_evento': _tituloController.text,
+          'descricao_evento': _descricaoController.text,
+        },
       );
-      if (_events[day] != null) {
-        _events[day]!.add(newEvent);
-      } else {
-        _events[day] = [newEvent];
-      }
 
-      // Limpa os campos de texto e mostra uma mensagem de sucesso
-      _cultivoController.clear();
-      _descricaoController.clear();
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Evento adicionado com sucesso!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Erro ao salvar o evento.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
+      final responseData = jsonDecode(response.body);
       if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(responseData['message']),
+            backgroundColor: responseData['status'] == 'success'
+                ? Colors.green
+                : Colors.red,
+          ),
+        );
+        if (responseData['status'] == 'success') {
+          _tituloController.clear();
+          _descricaoController.clear();
+          _carregarEventos();
+        }
+      }
+    } catch (e) {
+      // Tratar erro
+    } finally {
+      if (mounted)
         setState(() {
           _carregando = false;
         });
-      }
     }
   }
 
-  // Função para remover um evento
-  void _removerEvento(DateTime day, int index) {
-    setState(() {
-      if (_events.containsKey(day) && _events[day]!.length > index) {
-        _events[day]!.removeAt(index);
+  Future<void> _removerEvento(int eventoId) async {
+    try {
+      final response = await http.post(
+        Uri.parse(apiUrlExcluir),
+        body: {'id': eventoId.toString()},
+      );
+      final data = jsonDecode(response.body);
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Evento removido com sucesso!'),
-            backgroundColor: Colors.green,
+          SnackBar(
+            content: Text(data['message']),
+            backgroundColor: data['status'] == 'success'
+                ? Colors.green
+                : Colors.red,
           ),
         );
+        if (data['status'] == 'success') {
+          _carregarEventos();
+        }
       }
-    });
+    } catch (e) {
+      // Tratar erro
+    }
   }
 
-  // Helper function to check if two dates are the same day
+  // Funções auxiliares do seu layout original
   bool isSameDay(DateTime? a, DateTime? b) {
     if (a == null || b == null) return false;
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
-  // Helper function to get the number of days in a month
-  int daysInMonth(int year, int month) {
-    return DateTime(year, month + 1, 0).day;
-  }
-
-  // Helper function to get the day of the week for the first day of the month
-  int firstDayWeekday(int year, int month) {
-    return DateTime(year, month, 1).weekday;
-  }
+  int daysInMonth(int year, int month) => DateTime(year, month + 1, 0).day;
+  int firstDayWeekday(int year, int month) => DateTime(year, month, 1).weekday;
 
   @override
   Widget build(BuildContext context) {
     const Color primaryColor = Color(0xFF024222);
-    const Color accentColor = Color.fromARGB(
-      255,
-      3,
-      63,
-      31,
-    ); // Cor da barra superior
     const Color formBackgroundColor = Colors.white;
     const Color buttonColor = Color(0xFF333333);
-    const Color selectedDayColor = Color(0xFF22578E); // Azul do design
+    const Color selectedDayColor = Color(0xFF22578E);
 
     final List<String> weekdays = [
       'DOM',
@@ -186,11 +244,13 @@ class _TelaCalendarioState extends State<TelaCalendario> {
     final int year = _focusedDay.year;
     final int month = _focusedDay.month;
     final int days = daysInMonth(year, month);
-    final int startDay = firstDayWeekday(year, month);
-    final int gridItems = days + startDay - 1;
+    // Ajuste para o índice do weekday (domingo = 7, mas queremos que seja 0 para o cálculo)
+    final int startDayIndex = firstDayWeekday(year, month) % 7;
+    final int totalGridSlots = (days + startDayIndex).ceilToDouble().toInt();
 
-    final List<Map<String, String>> selectedDayEvents =
-        _events[DateTime(
+    // ATUALIZADO: Lê a lista de eventos para o dia selecionado
+    final List<EventoCalendario> selectedDayEvents =
+        _events[DateTime.utc(
           _selectedDay!.year,
           _selectedDay!.month,
           _selectedDay!.day,
@@ -198,137 +258,117 @@ class _TelaCalendarioState extends State<TelaCalendario> {
         [];
 
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: Stack(
-        children: [
-          // Cor de fundo
-          Positioned.fill(
-            child: Container(
-              color: const Color.fromARGB(255, 255, 255, 255),
-            ), // Preto do design
-          ),
-
-          // Layout principal da tela
-          SingleChildScrollView(
-            child: Column(
-              children: [
-                // --- Cabeçalho AgroGestor ---
-                Container(
-                  color: const Color.fromARGB(255, 3, 63, 31),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 15,
+      backgroundColor: const Color.fromARGB(
+        255,
+        255,
+        255,
+        255,
+      ), // Fundo escuro como no seu design
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            Container(
+              color: const Color.fromARGB(255, 3, 63, 31),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+              child: const Row(
+                children: [
+                  Text(
+                    'AgroGestor',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                  child: Row(
-                    children: [
-                      const Text(
-                        'AgroGestor',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                        ),
+                  Spacer(),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Calendário',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 40,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              "\"Planeje sua colheita, otimize seu tempo\"",
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 18,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+            const SizedBox(height: 40),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 40.0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // --- Seção do Calendário ---
+                  Expanded(
+                    flex: 2, // Dando mais espaço para o calendário
+                    child: Container(
+                      padding: const EdgeInsets.all(24.0),
+                      decoration: BoxDecoration(
+                        color: formBackgroundColor,
+                        borderRadius: BorderRadius.circular(16.0),
                       ),
-                      const Spacer(),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // --- Título e Slogan ---
-                const Text(
-                  'Calendário',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 40,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  "\"Planeje sua colheita, otimize seu tempo\"",
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 18,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-                const SizedBox(height: 40),
-
-                // --- Conteúdo Principal (Calendário e Formulário) ---
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 40.0),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // --- Seção do Calendário ---
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.all(24.0),
-                          decoration: BoxDecoration(
-                            color: formBackgroundColor,
-                            borderRadius: BorderRadius.circular(16.0),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.1),
-                                blurRadius: 10,
-                                offset: const Offset(0, 5),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            children: [
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.chevron_left),
-                                    onPressed: () {
-                                      setState(() {
-                                        _focusedDay = DateTime(
-                                          _focusedDay.year,
-                                          _focusedDay.month - 1,
-                                          _focusedDay.day,
-                                        );
-                                      });
-                                    },
-                                  ),
-                                  Text(
-                                    '${months[_focusedDay.month - 1]} ${_focusedDay.year}',
-                                    style: const TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.bold,
-                                      color: primaryColor,
+                      child: _carregando
+                          ? const Center(child: CircularProgressIndicator())
+                          : Column(
+                              children: [
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.chevron_left),
+                                      onPressed: () {
+                                        setState(() {
+                                          _focusedDay = DateTime(
+                                            _focusedDay.year,
+                                            _focusedDay.month - 1,
+                                            1,
+                                          );
+                                        });
+                                      },
                                     ),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.chevron_right),
-                                    onPressed: () {
-                                      setState(() {
-                                        _focusedDay = DateTime(
-                                          _focusedDay.year,
-                                          _focusedDay.month + 1,
-                                          _focusedDay.day,
-                                        );
-                                      });
-                                    },
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              GridView.builder(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                gridDelegate:
-                                    const SliverGridDelegateWithFixedCrossAxisCount(
-                                      crossAxisCount: 7,
-                                      mainAxisSpacing: 4.0,
-                                      crossAxisSpacing: 4.0,
+                                    Text(
+                                      '${months[_focusedDay.month - 1]} ${_focusedDay.year}',
+                                      style: const TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                        color: primaryColor,
+                                      ),
                                     ),
-                                itemCount: weekdays.length,
-                                itemBuilder: (context, index) {
-                                  return Center(
+                                    IconButton(
+                                      icon: const Icon(Icons.chevron_right),
+                                      onPressed: () {
+                                        setState(() {
+                                          _focusedDay = DateTime(
+                                            _focusedDay.year,
+                                            _focusedDay.month + 1,
+                                            1,
+                                          );
+                                        });
+                                      },
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                GridView.builder(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  gridDelegate:
+                                      const SliverGridDelegateWithFixedCrossAxisCount(
+                                        crossAxisCount: 7,
+                                      ),
+                                  itemCount: weekdays.length,
+                                  itemBuilder: (context, index) => Center(
                                     child: Text(
                                       weekdays[index],
                                       style: const TextStyle(
@@ -336,327 +376,213 @@ class _TelaCalendarioState extends State<TelaCalendario> {
                                         color: buttonColor,
                                       ),
                                     ),
-                                  );
-                                },
-                              ),
-                              const Divider(),
-                              GridView.builder(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                gridDelegate:
-                                    const SliverGridDelegateWithFixedCrossAxisCount(
-                                      crossAxisCount: 7,
-                                      mainAxisSpacing: 4.0,
-                                      crossAxisSpacing: 4.0,
-                                    ),
-                                itemCount: gridItems,
-                                itemBuilder: (context, index) {
-                                  if (index < startDay - 1) {
-                                    return Container();
-                                  }
-
-                                  final dayNumber = index - (startDay - 2);
-                                  final day = DateTime(year, month, dayNumber);
-                                  final isSelected = isSameDay(
-                                    _selectedDay,
-                                    day,
-                                  );
-                                  final hasEvents = _events.containsKey(day);
-
-                                  return GestureDetector(
-                                    onTap: () =>
-                                        _onDaySelected(day, _focusedDay),
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: isSelected
-                                            ? selectedDayColor
-                                            : Colors.transparent,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: hasEvents
-                                              ? Colors.orange
-                                              : Colors.transparent,
-                                          width: hasEvents ? 2.0 : 0.0,
-                                        ),
+                                  ),
+                                ),
+                                const Divider(),
+                                GridView.builder(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  gridDelegate:
+                                      const SliverGridDelegateWithFixedCrossAxisCount(
+                                        crossAxisCount: 7,
+                                        mainAxisSpacing: 4.0,
+                                        crossAxisSpacing: 4.0,
                                       ),
-                                      alignment: Alignment.center,
-                                      child: Text(
-                                        '$dayNumber',
-                                        style: TextStyle(
+                                  itemCount: totalGridSlots,
+                                  itemBuilder: (context, index) {
+                                    if (index < startDayIndex) {
+                                      return Container(); // Células vazias antes do dia 1
+                                    }
+                                    final dayNumber = index - startDayIndex + 1;
+                                    if (dayNumber > days) {
+                                      return Container(); // Células vazias depois do último dia
+                                    }
+
+                                    final day = DateTime.utc(
+                                      year,
+                                      month,
+                                      dayNumber,
+                                    );
+                                    final isSelected = isSameDay(
+                                      _selectedDay,
+                                      day,
+                                    );
+                                    final hasEvents = _events.containsKey(day);
+
+                                    return GestureDetector(
+                                      onTap: () =>
+                                          _onDaySelected(day, _focusedDay),
+                                      child: Container(
+                                        decoration: BoxDecoration(
                                           color: isSelected
-                                              ? Colors.white
-                                              : Colors.black,
-                                          fontWeight: isSelected
-                                              ? FontWeight.bold
-                                              : FontWeight.normal,
+                                              ? selectedDayColor
+                                              : Colors.transparent,
+                                          shape: BoxShape.circle,
+                                          border: hasEvents
+                                              ? Border.all(
+                                                  color: Colors.orange,
+                                                  width: 2.0,
+                                                )
+                                              : null,
                                         ),
+                                        alignment: Alignment.center,
+                                        child: Text(
+                                          '$dayNumber',
+                                          style: TextStyle(
+                                            color: isSelected
+                                                ? Colors.white
+                                                : Colors.black,
+                                            fontWeight: isSelected
+                                                ? FontWeight.bold
+                                                : FontWeight.normal,
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                    ),
+                  ),
+                  const SizedBox(width: 40),
+                  // --- Seção do Formulário e Eventos ---
+                  Expanded(
+                    flex: 1, // Menos espaço para esta seção
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(24.0),
+                          decoration: BoxDecoration(
+                            color: formBackgroundColor,
+                            borderRadius: BorderRadius.circular(16.0),
+                          ),
+                          child: Form(
+                            key: _formKey,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Cadastrar Atividade',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Text(
+                                  'Para: ${DateFormat('dd/MM/yyyy').format(_selectedDay!)}',
+                                ),
+                                const SizedBox(height: 20),
+                                TextFormField(
+                                  controller: _tituloController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Título (ex: Soja)',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  validator: (v) =>
+                                      v!.isEmpty ? 'Insira um título' : null,
+                                ),
+                                const SizedBox(height: 16),
+                                TextFormField(
+                                  controller: _descricaoController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Descrição (ex: Irrigação)',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  maxLines: 2,
+                                  validator: (v) => v!.isEmpty
+                                      ? 'Insira uma descrição'
+                                      : null,
+                                ),
+                                const SizedBox(height: 24),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton(
+                                    onPressed: _adicionarEvento,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: primaryColor,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 16.0,
+                                      ),
+                                    ),
+                                    child: const Text('Salvar'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 40),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(24.0),
+                          decoration: BoxDecoration(
+                            color: formBackgroundColor,
+                            borderRadius: BorderRadius.circular(16.0),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Eventos em: ${DateFormat('dd/MM/yyyy').format(_selectedDay!)}',
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 16.0),
+                              if (selectedDayEvents.isNotEmpty)
+                                ...selectedDayEvents.map((event) {
+                                  return Card(
+                                    margin: const EdgeInsets.only(bottom: 10),
+                                    child: ListTile(
+                                      title: Text(
+                                        event.titulo,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      subtitle: Text(event.descricao),
+                                      trailing: IconButton(
+                                        icon: const Icon(
+                                          Icons.delete,
+                                          color: Colors.red,
+                                        ),
+                                        onPressed: () =>
+                                            _removerEvento(event.id),
                                       ),
                                     ),
                                   );
-                                },
-                              ),
+                                }).toList()
+                              else
+                                const Text('Nenhum evento para esta data.'),
                             ],
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 40),
-                      // --- Seção do Formulário de Cadastro ---
-                      Expanded(
-                        child: Column(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(24.0),
-                              decoration: BoxDecoration(
-                                color: formBackgroundColor,
-                                borderRadius: BorderRadius.circular(16.0),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.1),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 5),
-                                  ),
-                                ],
-                              ),
-                              child: Form(
-                                key: _formKey,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Cadastrar Atividades da Safra',
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 20),
-                                    const Text(
-                                      'Cultura',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 5),
-                                    TextFormField(
-                                      controller: _cultivoController,
-                                      decoration: const InputDecoration(
-                                        hintText: 'Ex: Soja, Milho, Trigo',
-                                        border: OutlineInputBorder(),
-                                        focusedBorder: OutlineInputBorder(
-                                          borderSide: BorderSide(
-                                            color: primaryColor,
-                                          ),
-                                        ),
-                                      ),
-                                      validator: (v) => v == null || v.isEmpty
-                                          ? 'Insira o nome do cultivo'
-                                          : null,
-                                    ),
-                                    const SizedBox(height: 16),
-                                    const Text(
-                                      'Data',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 5),
-                                    Container(
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        border: Border.all(color: Colors.grey),
-                                        borderRadius: BorderRadius.circular(5),
-                                      ),
-                                      child: Text(
-                                        _selectedDay != null
-                                            ? '${_selectedDay!.day.toString().padLeft(2, '0')}/${_selectedDay!.month.toString().padLeft(2, '0')}/${_selectedDay!.year}'
-                                            : 'DD/MM/AAAA',
-                                        style: const TextStyle(fontSize: 16),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 16),
-                                    const Text(
-                                      'Descrição',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 5),
-                                    TextFormField(
-                                      controller: _descricaoController,
-                                      decoration: const InputDecoration(
-                                        hintText:
-                                            'Ex: Plantio, Irrigação, Colheita',
-                                        border: OutlineInputBorder(),
-                                        focusedBorder: OutlineInputBorder(
-                                          borderSide: BorderSide(
-                                            color: primaryColor,
-                                          ),
-                                        ),
-                                      ),
-                                      maxLines: 3,
-                                      validator: (v) => v == null || v.isEmpty
-                                          ? 'Insira a descrição da atividade'
-                                          : null,
-                                    ),
-                                    const SizedBox(height: 24),
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: ElevatedButton(
-                                            onPressed: () {
-                                              _cultivoController.clear();
-                                              _descricaoController.clear();
-                                              setState(() {});
-                                            },
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor: Colors.grey[300],
-                                              foregroundColor: buttonColor,
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    vertical: 16.0,
-                                                  ),
-                                              shape: RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(8.0),
-                                              ),
-                                            ),
-                                            child: const Text('Cancelar'),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: _carregando
-                                              ? const Center(
-                                                  child:
-                                                      CircularProgressIndicator(),
-                                                )
-                                              : ElevatedButton(
-                                                  onPressed: _adicionarEvento,
-                                                  style: ElevatedButton.styleFrom(
-                                                    backgroundColor:
-                                                        primaryColor,
-                                                    foregroundColor:
-                                                        Colors.white,
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          vertical: 16.0,
-                                                        ),
-                                                    shape: RoundedRectangleBorder(
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            8.0,
-                                                          ),
-                                                    ),
-                                                  ),
-                                                  child: const Text('Salvar'),
-                                                ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 40),
-                            // --- Seção de Visualização de Eventos ---
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(24.0),
-                              decoration: BoxDecoration(
-                                color: formBackgroundColor,
-                                borderRadius: BorderRadius.circular(16.0),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.1),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 5),
-                                  ),
-                                ],
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Eventos em: ${_selectedDay?.day}/${_selectedDay?.month}/${_selectedDay?.year}',
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16.0),
-                                  // Verifica se há eventos para o dia selecionado
-                                  if (selectedDayEvents.isNotEmpty)
-                                    ...selectedDayEvents.asMap().entries.map((
-                                      entry,
-                                    ) {
-                                      final index = entry.key;
-                                      final event = entry.value;
-                                      return Card(
-                                        margin: const EdgeInsets.only(
-                                          bottom: 10,
-                                        ),
-                                        child: ListTile(
-                                          title: Text(
-                                            event['cultivo'] ?? '',
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                          subtitle: Text(
-                                            event['descricao'] ?? '',
-                                          ),
-                                          trailing: IconButton(
-                                            icon: const Icon(
-                                              Icons.delete,
-                                              color: Colors.red,
-                                            ),
-                                            onPressed: () => _removerEvento(
-                                              DateTime(
-                                                _selectedDay!.year,
-                                                _selectedDay!.month,
-                                                _selectedDay!.day,
-                                              ),
-                                              index,
-                                            ),
-                                          ),
-                                        ),
-                                      );
-                                    }).toList()
-                                  else
-                                    const Text(
-                                      'Nenhum evento registrado para esta data.',
-                                      style: TextStyle(color: buttonColor),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ),
-
-          // Botão Voltar
-          Positioned(
-            left: 24,
-            bottom: 24,
-            child: FloatingActionButton.extended(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              backgroundColor: primaryColor,
-              label: const Text(
-                'Voltar',
-                style: TextStyle(color: Colors.white),
+                ],
               ),
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
             ),
+            const SizedBox(height: 40),
+          ],
+        ),
+      ),
+      bottomNavigationBar: Container(
+        padding: const EdgeInsets.all(16),
+        color: const Color.fromARGB(255, 255, 255, 255),
+        child: ElevatedButton.icon(
+          icon: const Icon(Icons.arrow_back),
+          label: const Text('Voltar'),
+          onPressed: () => Navigator.pop(context),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: primaryColor,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 16),
           ),
-        ],
+        ),
       ),
     );
   }

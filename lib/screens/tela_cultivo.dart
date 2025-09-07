@@ -5,9 +5,32 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io' show Platform;
 
+// NOVO: Modelo de dados para segurança e clareza
+class Cultivo {
+  final int id;
+  final String cultura;
+  final String area;
+  final String inicio;
+
+  Cultivo({
+    required this.id,
+    required this.cultura,
+    required this.area,
+    required this.inicio,
+  });
+
+  factory Cultivo.fromJson(Map<String, dynamic> json) {
+    return Cultivo(
+      id: int.parse(json['id'].toString()),
+      cultura: json['cultura'].toString(),
+      area: json['area'].toString(),
+      inicio: json['inicio'].toString(),
+    );
+  }
+}
+
 class TelaCultivo extends StatefulWidget {
   final int propriedadeId;
-
   const TelaCultivo({super.key, required this.propriedadeId});
 
   @override
@@ -21,27 +44,16 @@ class _TelaCultivoState extends State<TelaCultivo> {
   final _inicioController = TextEditingController();
   DateTime? _dataSelecionada;
 
-  // Lista para armazenar os cultivos cadastrados
-  List<Map<String, dynamic>> _cultivos = [];
+  List<Cultivo> _cultivos = []; // Usa o modelo de dados
+  int? _idEdicao; // Guarda o ID em vez do índice
 
-  // Índice do cultivo que está sendo editado
-  int? _indiceEdicao;
-
-  // Controle de loading
   bool _carregando = false;
   bool _inicializando = true;
 
   String get _apiUrlBase {
-    if (kIsWeb) {
-      return 'http://localhost/api';
-    } else {
-      if (Platform.isAndroid) {
-        return 'http://10.0.2.2/api';
-      } else {
-        // Para iOS ou outros, você pode precisar de outro IP
-        return 'http://localhost/api';
-      }
-    }
+    if (kIsWeb) return 'http://localhost/api';
+    if (Platform.isAndroid) return 'http://10.0.2.2/api';
+    return 'http://localhost/api';
   }
 
   String get apiUrlListar => '$_apiUrlBase/listar_cultivos.php';
@@ -68,46 +80,32 @@ class _TelaCultivoState extends State<TelaCultivo> {
       _inicializando = true;
     });
     try {
-      final response = await http.post(
-        Uri.parse(apiUrlListar),
-        body: {'propriedade_id': widget.propriedadeId.toString()},
+      // CORRIGIDO: Usa http.get para listar
+      final uri = Uri.parse(
+        '$apiUrlListar?propriedade_id=${widget.propriedadeId}',
       );
+      final response = await http.get(uri);
+
       if (response.statusCode == 200) {
-        final dynamic data = jsonDecode(response.body);
-        if (data is List) {
-          setState(() {
-            _cultivos = List<Map<String, dynamic>>.from(data);
-          });
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Erro ao carregar cultivos: ${response.statusCode}',
-              ),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+        final List<dynamic> data = jsonDecode(response.body);
+        setState(() {
+          _cultivos = data.map((json) => Cultivo.fromJson(json)).toList();
+        });
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              'Erro ao conectar ao servidor para carregar dados: $e',
-            ),
+            content: Text('Erro ao carregar dados: $e'),
             backgroundColor: Colors.red,
           ),
         );
       }
     } finally {
-      if (mounted) {
+      if (mounted)
         setState(() {
           _inicializando = false;
         });
-      }
     }
   }
 
@@ -128,120 +126,127 @@ class _TelaCultivoState extends State<TelaCultivo> {
   }
 
   void _limparCampos() {
+    _formKey.currentState?.reset();
     _cultivoController.clear();
     _areaController.clear();
     _inicioController.clear();
     setState(() {
       _dataSelecionada = null;
-      _indiceEdicao = null;
+      _idEdicao = null;
     });
   }
 
   Future<void> _salvarOuAtualizarCultivo() async {
-    if (!_formKey.currentState!.validate() || _dataSelecionada == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Preencha todos os campos e selecione uma data.'),
-        ),
-      );
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
 
     setState(() {
       _carregando = true;
     });
 
-    final cultivoDados = {
-      'cultura': _cultivoController.text,
+    final url = _idEdicao == null ? apiUrlCadastro : apiUrlEdicao;
+    final body = {
       'propriedade_id': widget.propriedadeId.toString(),
-      'area': _areaController.text,
+      'cultura': _cultivoController.text,
+      'area': _areaController.text.replaceAll(',', '.'),
       'inicio': DateFormat('yyyy-MM-dd').format(_dataSelecionada!),
     };
 
+    if (_idEdicao != null) {
+      body['id'] = _idEdicao.toString();
+    }
+
     try {
-      final url = _indiceEdicao == null ? apiUrlCadastro : apiUrlEdicao;
-      if (_indiceEdicao != null) {
-        cultivoDados['id'] = _cultivos[_indiceEdicao!]['id'].toString();
-      }
-      final response = await http.post(Uri.parse(url), body: cultivoDados);
+      final response = await http.post(Uri.parse(url), body: body);
       final data = jsonDecode(response.body);
-      if (data['status'] == 'success') {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(data['message']),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-        _carregarCultivos(); // Recarrega a lista após a operação
-        _limparCampos();
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(data['message']),
-              backgroundColor: Colors.red,
-            ),
-          );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(data['message'] ?? 'Operação concluída.'),
+            backgroundColor:
+                (data['status'] == 'success' || data['status'] == 'info')
+                ? Colors.green
+                : Colors.red,
+          ),
+        );
+        if (data['status'] == 'success') {
+          _carregarCultivos();
+          _limparCampos();
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erro ao salvar cultivo: $e'),
+            content: Text('Erro de conexão: $e'),
             backgroundColor: Colors.red,
           ),
         );
       }
     } finally {
-      if (mounted) {
+      if (mounted)
         setState(() {
           _carregando = false;
         });
-      }
     }
   }
 
-  void _editarCultivo(int index) {
+  void _iniciarEdicao(Cultivo cultivo) {
     setState(() {
-      _indiceEdicao = index;
-      _cultivoController.text = _cultivos[index]['cultura'];
-      _areaController.text = _cultivos[index]['area'].toString();
-      _dataSelecionada = DateFormat(
+      _idEdicao = cultivo.id;
+      _cultivoController.text = cultivo.cultura;
+      _areaController.text = cultivo.area;
+      // CORRIGIDO: Formato da data para corresponder à API
+      _dataSelecionada = DateTime.parse(cultivo.inicio);
+      _inicioController.text = DateFormat(
         'dd/MM/yyyy',
-      ).parse(_cultivos[index]['inicio']);
-      _inicioController.text = _cultivos[index]['inicio'];
+      ).format(_dataSelecionada!);
     });
   }
 
-  Future<void> _excluirCultivo(int index) async {
-    final cultivoId = _cultivos[index]['id'].toString();
+  void _mostrarDialogoConfirmacao(int cultivoId) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Confirmar Exclusão'),
+          content: const Text('Tem certeza que deseja excluir este cultivo?'),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancelar'),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Excluir'),
+              onPressed: () {
+                Navigator.of(context).pop();
+                _excluirCultivo(cultivoId);
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _excluirCultivo(int cultivoId) async {
     try {
       final response = await http.post(
         Uri.parse(apiUrlExclusao),
-        body: {'id': cultivoId},
+        body: {'id': cultivoId.toString()},
       );
       final data = jsonDecode(response.body);
-      if (data['status'] == 'success') {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(data['message']),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-        _carregarCultivos(); // Recarrega a lista após a operação
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(data['message']),
-              backgroundColor: Colors.red,
-            ),
-          );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(data['message']),
+            backgroundColor: data['status'] == 'success'
+                ? Colors.green
+                : Colors.red,
+          ),
+        );
+        if (data['status'] == 'success') {
+          _carregarCultivos();
         }
       }
     } catch (e) {
@@ -259,7 +264,6 @@ class _TelaCultivoState extends State<TelaCultivo> {
   @override
   Widget build(BuildContext context) {
     const Color primaryColor = Color(0xFF024222);
-    const Color accentColor = Color(0xFF327953); // Cor da barra superior
     const Color buttonColor = Color(0xFF333333);
     const Color formBackgroundColor = Colors.white;
 
@@ -268,48 +272,32 @@ class _TelaCultivoState extends State<TelaCultivo> {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // --- Cabeçalho AgroGestor ---
             Container(
-              color: accentColor,
+              color: primaryColor,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(
-                    'AgroGestor',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  Image.asset('lib/img/img1/logogeral.png', height: 60),
                 ],
               ),
             ),
             const SizedBox(height: 20),
-
-            // --- Título e Slogan ---
             const Text(
               'Cultivo',
-              style: TextStyle(
-                color: Color.fromARGB(255, 0, 0, 0),
-                fontSize: 40,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 10),
             const Text(
-              "\"Cadastro de Cultivo AgroGestor: Organize sua plantação, colha eficiência.\"",
+              "\"Organize sua plantação, colha eficiência.\"",
               style: TextStyle(
-                color: Color.fromARGB(179, 37, 36, 36),
                 fontSize: 18,
                 fontStyle: FontStyle.italic,
+                color: Colors.black54,
               ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 40),
-
-            // --- Conteúdo Principal (Formulário e Lista) ---
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 40.0),
               child: Column(
@@ -344,11 +332,6 @@ class _TelaCultivoState extends State<TelaCultivo> {
                                       controller: _cultivoController,
                                       decoration: const InputDecoration(
                                         border: OutlineInputBorder(),
-                                        focusedBorder: OutlineInputBorder(
-                                          borderSide: BorderSide(
-                                            color: primaryColor,
-                                          ),
-                                        ),
                                       ),
                                       validator: (value) => value!.isEmpty
                                           ? 'Campo obrigatório'
@@ -362,18 +345,16 @@ class _TelaCultivoState extends State<TelaCultivo> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text('Área de Plantio'),
+                                    const Text('Área (ha)'),
                                     TextFormField(
                                       controller: _areaController,
                                       decoration: const InputDecoration(
                                         border: OutlineInputBorder(),
-                                        focusedBorder: OutlineInputBorder(
-                                          borderSide: BorderSide(
-                                            color: primaryColor,
-                                          ),
-                                        ),
                                       ),
-                                      keyboardType: TextInputType.number,
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                            decimal: true,
+                                          ),
                                       validator: (value) => value!.isEmpty
                                           ? 'Campo obrigatório'
                                           : null,
@@ -386,16 +367,12 @@ class _TelaCultivoState extends State<TelaCultivo> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text('Início'),
+                                    const Text('Início do Plantio'),
                                     TextFormField(
                                       controller: _inicioController,
                                       decoration: const InputDecoration(
                                         border: OutlineInputBorder(),
-                                        focusedBorder: OutlineInputBorder(
-                                          borderSide: BorderSide(
-                                            color: primaryColor,
-                                          ),
-                                        ),
+                                        hintText: 'dd/mm/aaaa',
                                       ),
                                       readOnly: true,
                                       onTap: () => _selecionarData(context),
@@ -423,9 +400,6 @@ class _TelaCultivoState extends State<TelaCultivo> {
                                     horizontal: 24,
                                     vertical: 16,
                                   ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
                                 ),
                                 child: _carregando
                                     ? const SizedBox(
@@ -437,28 +411,26 @@ class _TelaCultivoState extends State<TelaCultivo> {
                                         ),
                                       )
                                     : Text(
-                                        _indiceEdicao == null
+                                        _idEdicao == null
                                             ? 'Salvar'
                                             : 'Atualizar',
                                       ),
                               ),
-                              const SizedBox(width: 10),
-                              if (_indiceEdicao != null)
+                              if (_idEdicao != null) ...[
+                                const SizedBox(width: 10),
                                 ElevatedButton(
                                   onPressed: _limparCampos,
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: buttonColor,
+                                    backgroundColor: Colors.grey[600],
                                     foregroundColor: Colors.white,
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 24,
                                       vertical: 16,
                                     ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
                                   ),
                                   child: const Text('Cancelar Edição'),
                                 ),
+                              ],
                             ],
                           ),
                         ],
@@ -466,7 +438,6 @@ class _TelaCultivoState extends State<TelaCultivo> {
                     ),
                   ),
                   const SizedBox(height: 40),
-                  // --- Lista de Cultivos Cadastrados ---
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(24.0),
@@ -507,9 +478,14 @@ class _TelaCultivoState extends State<TelaCultivo> {
                                   return Card(
                                     margin: const EdgeInsets.only(bottom: 8),
                                     child: ListTile(
-                                      title: Text(cultivo['cultura']),
+                                      title: Text(
+                                        cultivo.cultura,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
                                       subtitle: Text(
-                                        'Propriedade: ${cultivo['propriedade_id'] ?? 'N/A'} | Área: ${cultivo['area'] ?? 'N/A'} | Início: ${cultivo['inicio'] ?? 'N/A'}',
+                                        'Área: ${cultivo.area} ha | Início: ${DateFormat('dd/MM/yyyy').format(DateTime.parse(cultivo.inicio))}',
                                       ),
                                       trailing: Row(
                                         mainAxisSize: MainAxisSize.min,
@@ -520,7 +496,7 @@ class _TelaCultivoState extends State<TelaCultivo> {
                                               color: Colors.blue,
                                             ),
                                             onPressed: () =>
-                                                _editarCultivo(index),
+                                                _iniciarEdicao(cultivo),
                                           ),
                                           IconButton(
                                             icon: const Icon(
@@ -528,7 +504,9 @@ class _TelaCultivoState extends State<TelaCultivo> {
                                               color: Colors.red,
                                             ),
                                             onPressed: () =>
-                                                _excluirCultivo(index),
+                                                _mostrarDialogoConfirmacao(
+                                                  cultivo.id,
+                                                ),
                                           ),
                                         ],
                                       ),
@@ -542,6 +520,7 @@ class _TelaCultivoState extends State<TelaCultivo> {
                 ],
               ),
             ),
+            const SizedBox(height: 40),
           ],
         ),
       ),
@@ -553,11 +532,9 @@ class _TelaCultivoState extends State<TelaCultivo> {
           style: ElevatedButton.styleFrom(
             backgroundColor: primaryColor,
             foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
+            minimumSize: const Size(double.infinity, 50),
           ),
-          child: const Text('Voltar ao Perfil'),
+          child: const Text('Voltar'),
         ),
       ),
     );

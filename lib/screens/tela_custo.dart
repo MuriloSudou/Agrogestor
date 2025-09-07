@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io' show Platform;
+import 'package:intl/intl.dart';
 
 class TelaCusto extends StatefulWidget {
   final int propriedadeId;
@@ -15,23 +16,22 @@ class TelaCusto extends StatefulWidget {
 
 class _TelaCustoState extends State<TelaCusto> {
   String? _cultivoSelecionado;
-  String _areaCalculada = '';
-  String _totalNotasFiscais = '';
-  String _custoPorArea = '';
+  String _areaCalculada = '0.00 ha';
+  String _totalNotasFiscais = 'R\$ 0.00';
+  String _custoPorArea = 'R\$ 0.00 / ha';
   bool _inicializando = true;
 
   List<Map<String, dynamic>> _cultivos = [];
   List<Map<String, dynamic>> _notasFiscais = [];
 
+  // ATUALIZADO: Usando 10.0.2.2 para o emulador Android
   String get _apiUrlBase {
     if (kIsWeb) {
       return 'http://localhost/api';
+    } else if (Platform.isAndroid) {
+      return 'http://10.0.2.2/api';
     } else {
-      if (Platform.isAndroid) {
-        return 'http://10.0.2.2/api';
-      } else {
-        return 'http://localhost/api';
-      }
+      return 'http://localhost/api';
     }
   }
 
@@ -44,21 +44,22 @@ class _TelaCustoState extends State<TelaCusto> {
     _carregarDados();
   }
 
+  // ATUALIZADO: Usando http.get para compatibilidade com a API
   Future<void> _carregarDados() async {
     setState(() {
       _inicializando = true;
     });
 
     try {
-      final cultivosResponse = await http.post(
-        Uri.parse(apiUrlListarCultivos),
-        body: {'propriedade_id': widget.propriedadeId.toString()},
+      final uriCultivos = Uri.parse(
+        '$apiUrlListarCultivos?propriedade_id=${widget.propriedadeId}',
+      );
+      final uriNotas = Uri.parse(
+        '$apiUrlListarNf?propriedade_id=${widget.propriedadeId}',
       );
 
-      final notasResponse = await http.post(
-        Uri.parse(apiUrlListarNf),
-        body: {'propriedade_id': widget.propriedadeId.toString()},
-      );
+      final cultivosResponse = await http.get(uriCultivos);
+      final notasResponse = await http.get(uriNotas);
 
       if (cultivosResponse.statusCode == 200 &&
           notasResponse.statusCode == 200) {
@@ -71,13 +72,11 @@ class _TelaCustoState extends State<TelaCusto> {
             _notasFiscais = List<Map<String, dynamic>>.from(notasData);
 
             if (_cultivos.isNotEmpty) {
-              // AJUSTE 1: Garante que o primeiro item a ser selecionado também venha da lista de nomes únicos
               final nomesUnicos = _cultivos
                   .map((c) => c['cultura'].toString())
                   .toSet()
                   .toList();
-              _cultivoSelecionado = nomesUnicos.first;
-              _gerarCusto(); // Calcula o custo inicial para o primeiro item
+              // Não pré-seleciona mais, deixa o usuário escolher
             }
           });
         }
@@ -110,17 +109,12 @@ class _TelaCustoState extends State<TelaCusto> {
       return;
     }
 
-    // Filtra todos os registros daquele cultivo para somar a área total
     final List<Map<String, dynamic>> cultivosFiltrados = _cultivos
         .where((c) => c['cultura'] == _cultivoSelecionado)
         .toList();
-
-    // Pega os IDs de todos os registros do cultivo selecionado
     final List<String> idsDosCultivosSelecionados = cultivosFiltrados
         .map((c) => c['id'].toString())
         .toList();
-
-    // Filtra as notas fiscais que pertencem a qualquer um dos IDs do cultivo selecionado
     final List<Map<String, dynamic>> notasFiltradas = _notasFiscais.where((nf) {
       return idsDosCultivosSelecionados.contains(nf['cultivo_id'].toString());
     }).toList();
@@ -135,80 +129,74 @@ class _TelaCustoState extends State<TelaCusto> {
       totalNotas += double.tryParse(nota['valor']?.toString() ?? '0') ?? 0.0;
     }
 
-    double custoCalculado = 0.0;
-    if (totalArea > 0) {
-      custoCalculado = totalNotas / totalArea;
-    }
+    double custoCalculado = totalArea > 0 ? totalNotas / totalArea : 0.0;
+
+    final currencyFormat = NumberFormat.currency(
+      locale: 'pt_BR',
+      symbol: 'R\$',
+    );
 
     setState(() {
-      _areaCalculada = '${totalArea.toStringAsFixed(2)} ha';
-      _totalNotasFiscais = 'R\$ ${totalNotas.toStringAsFixed(2)}';
-      _custoPorArea = 'R\$ ${custoCalculado.toStringAsFixed(2)} / ha';
+      _areaCalculada =
+          '${totalArea.toStringAsFixed(2).replaceAll('.', ',')} ha';
+      _totalNotasFiscais = currencyFormat.format(totalNotas);
+      _custoPorArea = '${currencyFormat.format(custoCalculado)} / ha';
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    const Color accentColor = Color(0xFF327953);
-    const Color formBackgroundColor = Colors.white;
     const Color primaryColor = Color(0xFF024222);
+    const Color accentColor = Color(0xFF327953);
+
+    final nomesUnicosCultivos = _cultivos
+        .map((cultivo) => cultivo['cultura'].toString())
+        .toSet()
+        .toList();
 
     return Scaffold(
-      backgroundColor: const Color.fromARGB(255, 255, 255, 255),
+      backgroundColor: Colors.grey[100],
       body: _inicializando
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
               child: Column(
                 children: [
                   Container(
-                    color: accentColor,
+                    color: primaryColor,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 20,
                       vertical: 15,
                     ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(
-                          'AgroGestor',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                        Image.asset('lib/img/img1/logogeral.png', height: 60),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Custo da Safra',
-                    style: TextStyle(
-                      color: Color.fromARGB(255, 0, 0, 0),
-                      fontSize: 40,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    "\"Gestão precisa da colheita para um campo mais rentável!\"",
-                    style: TextStyle(
-                      color: Color.fromARGB(179, 37, 36, 36),
-                      fontSize: 18,
-                      fontStyle: FontStyle.italic,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 40),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 40.0),
+                    padding: const EdgeInsets.all(24.0),
                     child: Column(
                       children: [
+                        const Text(
+                          'Custo da Safra',
+                          style: TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          "Selecione um cultivo para ver os custos detalhados.",
+                          style: TextStyle(fontSize: 16, color: Colors.black54),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 32),
                         Container(
-                          width: double.infinity,
                           padding: const EdgeInsets.all(24.0),
                           decoration: BoxDecoration(
-                            color: formBackgroundColor,
+                            color: Colors.white,
                             borderRadius: BorderRadius.circular(16.0),
                             boxShadow: [
                               BoxShadow(
@@ -219,155 +207,51 @@ class _TelaCustoState extends State<TelaCusto> {
                             ],
                           ),
                           child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('Cultivo'),
-                                        // AJUSTE 2: Cria uma lista de nomes de cultivos únicos para o Dropdown
-                                        Builder(
-                                          builder: (context) {
-                                            final nomesUnicosCultivos = _cultivos
-                                                .map(
-                                                  (cultivo) =>
-                                                      cultivo['cultura']
-                                                          .toString(),
-                                                )
-                                                .toSet() // O Set remove automaticamente as duplicatas
-                                                .toList(); // Converte de volta para uma lista
-
-                                            return DropdownButtonFormField<
-                                              String
-                                            >(
-                                              decoration: const InputDecoration(
-                                                border: OutlineInputBorder(),
-                                                focusedBorder:
-                                                    OutlineInputBorder(
-                                                      borderSide: BorderSide(
-                                                        color: primaryColor,
-                                                      ),
-                                                    ),
-                                              ),
-                                              value: _cultivoSelecionado,
-                                              hint: const Text(
-                                                'Selecione um cultivo',
-                                              ),
-                                              onChanged: (String? newValue) {
-                                                setState(() {
-                                                  _cultivoSelecionado =
-                                                      newValue;
-                                                  // A chamada _gerarCusto() foi removida daqui
-                                                });
-                                              },
-                                              items: nomesUnicosCultivos
-                                                  .map<
-                                                    DropdownMenuItem<String>
-                                                  >(
-                                                    (String nomeCultivo) =>
-                                                        DropdownMenuItem<
-                                                          String
-                                                        >(
-                                                          value: nomeCultivo,
-                                                          child: Text(
-                                                            nomeCultivo,
-                                                          ),
-                                                        ),
-                                                  )
-                                                  .toList(),
-                                            );
-                                          },
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('Área de Plantio'),
-                                        TextFormField(
-                                          readOnly: true,
-                                          decoration: const InputDecoration(
-                                            border: OutlineInputBorder(),
-                                            focusedBorder: OutlineInputBorder(
-                                              borderSide: BorderSide(
-                                                color: primaryColor,
-                                              ),
-                                            ),
-                                          ),
-                                          controller: TextEditingController(
-                                            text: _areaCalculada,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('Custo Total'),
-                                        TextFormField(
-                                          readOnly: true,
-                                          decoration: const InputDecoration(
-                                            border: OutlineInputBorder(),
-                                            focusedBorder: OutlineInputBorder(
-                                              borderSide: BorderSide(
-                                                color: primaryColor,
-                                              ),
-                                            ),
-                                          ),
-                                          controller: TextEditingController(
-                                            text: _totalNotasFiscais,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 20),
-                              ElevatedButton(
-                                // AJUSTE 3: Este botão agora é o único que chama a função de cálculo
-                                onPressed: _gerarCusto,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: primaryColor,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 24,
-                                    vertical: 16,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
+                              DropdownButtonFormField<String>(
+                                decoration: const InputDecoration(
+                                  labelText: 'Cultivo',
+                                  border: OutlineInputBorder(),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderSide: BorderSide(color: primaryColor),
                                   ),
                                 ),
-                                child: const Text('Gerar Custo'),
+                                value: _cultivoSelecionado,
+                                hint: const Text('Selecione um cultivo'),
+                                // ATUALIZADO: A lógica de cálculo agora está aqui
+                                onChanged: (String? newValue) {
+                                  setState(() {
+                                    _cultivoSelecionado = newValue;
+                                    _gerarCusto(); // Calcula o custo assim que o usuário seleciona
+                                  });
+                                },
+                                items: nomesUnicosCultivos
+                                    .map<DropdownMenuItem<String>>(
+                                      (String nomeCultivo) =>
+                                          DropdownMenuItem<String>(
+                                            value: nomeCultivo,
+                                            child: Text(nomeCultivo),
+                                          ),
+                                    )
+                                    .toList(),
                               ),
-                              const SizedBox(height: 40),
-                              const Text(
-                                'Custo da Safra por Hectare',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                              const SizedBox(height: 24),
+                              _buildInfoRow(
+                                'Área Total Cultivada:',
+                                _areaCalculada,
                               ),
-                              const SizedBox(height: 10),
-                              Text(
+                              const Divider(height: 24),
+                              _buildInfoRow(
+                                'Custo Total (NF-e):',
+                                _totalNotasFiscais,
+                              ),
+                              const Divider(height: 24),
+                              _buildInfoRow(
+                                'Custo por Hectare:',
                                 _custoPorArea,
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color: accentColor,
-                                ),
+                                isTotal: true,
+                                color: accentColor,
                               ),
                             ],
                           ),
@@ -380,14 +264,13 @@ class _TelaCustoState extends State<TelaCusto> {
             ),
       bottomNavigationBar: Container(
         padding: const EdgeInsets.all(24),
-        color: Colors
-            .white, // Alterado para branco para combinar com o fundo do form
+        color: Colors.grey[100],
         child: ElevatedButton(
           onPressed: () => Navigator.pop(context),
           style: ElevatedButton.styleFrom(
             backgroundColor: primaryColor,
             foregroundColor: Colors.white,
-            minimumSize: const Size(double.infinity, 50), // Botão mais alto
+            minimumSize: const Size(double.infinity, 50),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
             ),
@@ -395,6 +278,36 @@ class _TelaCustoState extends State<TelaCusto> {
           child: const Text('Voltar'),
         ),
       ),
+    );
+  }
+
+  // Widget auxiliar para criar as linhas de informação
+  Widget _buildInfoRow(
+    String label,
+    String value, {
+    bool isTotal = false,
+    Color color = Colors.black87,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 16,
+            color: Colors.black54,
+            fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: isTotal ? 20 : 18,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+      ],
     );
   }
 }
