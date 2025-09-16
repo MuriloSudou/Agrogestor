@@ -47,7 +47,7 @@ class CultivoParaSaca {
 }
 
 class TelaSacas extends StatefulWidget {
-  final int propriedadeId;
+  final String propriedadeId;
   const TelaSacas({super.key, required this.propriedadeId});
 
   @override
@@ -97,10 +97,11 @@ class _TelaSacasState extends State<TelaSacas> {
       _carregando = true;
     });
     await Future.wait([_carregarSacas(), _carregarCultivos()]);
-    if (mounted)
+    if (mounted) {
       setState(() {
         _carregando = false;
       });
+    }
   }
 
   Future<void> _carregarSacas() async {
@@ -202,10 +203,11 @@ class _TelaSacasState extends State<TelaSacas> {
     } catch (e) {
       // Tratar erro
     } finally {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _carregando = false;
         });
+      }
     }
   }
 
@@ -293,7 +295,7 @@ class _TelaSacasState extends State<TelaSacas> {
                       child: Column(
                         children: [
                           DropdownButtonFormField<int>(
-                            value: _cultivoSelecionadoId,
+                            initialValue: _cultivoSelecionadoId,
                             decoration: const InputDecoration(
                               labelText: 'Cultivo*',
                               border: OutlineInputBorder(),

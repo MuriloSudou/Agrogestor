@@ -1,30 +1,28 @@
 import 'package:flutter/material.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'tela_home.dart';
 import 'tela_propriedade.dart';
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
 
 class Propriedade {
-  final int id;
+  final String id;
   final String nome;
   final String area;
 
   Propriedade({required this.id, required this.nome, required this.area});
 
-  // CORRIGIDO: Nomes das chaves para corresponder ao JSON da API
-  factory Propriedade.fromJson(Map<String, dynamic> json) {
+  factory Propriedade.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
     return Propriedade(
-      id: int.parse(json['id'].toString()),
-      nome: json['nome_propriedade'].toString(),
-      area: json['area_ha'].toString(),
+      id: doc.id,
+      nome: data['nome'] ?? '',
+      area: data['area_ha'] ?? '',
     );
   }
 }
 
 class TelaSelecaoPropriedade extends StatefulWidget {
-  final int agricultorId;
+  final String agricultorId;
   final String nomeAgricultor;
 
   const TelaSelecaoPropriedade({
@@ -39,16 +37,61 @@ class TelaSelecaoPropriedade extends StatefulWidget {
 
 class _TelaSelecaoPropriedadeState extends State<TelaSelecaoPropriedade> {
   List<Propriedade> _listaPropriedades = [];
-  int? _propriedadeSelecionadaId;
+  String? _propriedadeSelecionadaId;
   bool _carregando = true;
 
-  String get _apiUrlBase {
-    if (kIsWeb) return 'http://localhost/api';
-    if (Platform.isAndroid) return 'http://192.168.0.250/api';
-    return 'http://localhost/api';
+  Future<void> _removerPropriedade(String propriedadeId) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remover Propriedade'),
+        content: const Text('Tem certeza que deseja remover esta propriedade?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Remover', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      await FirebaseFirestore.instance
+          .collection('propriedades')
+          .doc(propriedadeId)
+          .delete();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Propriedade removida com sucesso!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _buscarPropriedades();
+      }
+    }
   }
 
-  String get apiUrl => '$_apiUrlBase/listar_propriedades.php';
+  void _editarPropriedade(Propriedade propriedade) async {
+    final resultado = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TelaPropriedade(
+          agricultorId: widget.agricultorId,
+          nomeAgricultor: widget.nomeAgricultor,
+          propriedadeId: propriedade.id,
+          nome: propriedade.nome,
+          area: propriedade.area,
+        ),
+      ),
+    );
+    if (resultado == true) {
+      _buscarPropriedades();
+    }
+  }
 
   @override
   void initState() {
@@ -61,26 +104,27 @@ class _TelaSelecaoPropriedadeState extends State<TelaSelecaoPropriedade> {
       _carregando = true;
     });
     try {
-      // CORRIGIDO: Usa http.get e passa o ID na URL
-      final uri = Uri.parse('$apiUrl?agricultor_id=${widget.agricultorId}');
-      final response = await http.get(uri);
-
-      if (response.statusCode == 200) {
-        // CORRIGIDO: A API agora retorna uma lista JSON diretamente
-        final List<dynamic> propriedadesJson = jsonDecode(response.body);
-        setState(() {
-          _listaPropriedades = propriedadesJson
-              .map((json) => Propriedade.fromJson(json))
-              .toList();
-        });
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        throw Exception('Usuário não autenticado.');
       }
+      final query = await FirebaseFirestore.instance
+          .collection('propriedades')
+          .where('uid', isEqualTo: user.uid)
+          .get();
+      setState(() {
+        _listaPropriedades = query.docs
+            .map((doc) => Propriedade.fromFirestore(doc))
+            .toList();
+      });
     } catch (e) {
       // Tratar erro
     } finally {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _carregando = false;
         });
+      }
     }
   }
 
@@ -156,16 +200,42 @@ class _TelaSelecaoPropriedadeState extends State<TelaSelecaoPropriedade> {
                               itemBuilder: (context, index) {
                                 final propriedade = _listaPropriedades[index];
                                 return Card(
-                                  child: RadioListTile<int>(
-                                    title: Text(propriedade.nome),
-                                    subtitle: Text('${propriedade.area} ha'),
-                                    value: propriedade.id,
-                                    groupValue: _propriedadeSelecionadaId,
-                                    onChanged: (value) {
-                                      setState(() {
-                                        _propriedadeSelecionadaId = value;
-                                      });
-                                    },
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: RadioListTile<String>(
+                                          title: Text(propriedade.nome),
+                                          subtitle: Text(
+                                            '${propriedade.area} ha',
+                                          ),
+                                          value: propriedade.id,
+                                          groupValue: _propriedadeSelecionadaId,
+                                          onChanged: (value) {
+                                            setState(() {
+                                              _propriedadeSelecionadaId = value;
+                                            });
+                                          },
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.edit,
+                                          color: Colors.blue,
+                                        ),
+                                        tooltip: 'Editar',
+                                        onPressed: () =>
+                                            _editarPropriedade(propriedade),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.delete,
+                                          color: Colors.red,
+                                        ),
+                                        tooltip: 'Remover',
+                                        onPressed: () =>
+                                            _removerPropriedade(propriedade.id),
+                                      ),
+                                    ],
                                   ),
                                 );
                               },

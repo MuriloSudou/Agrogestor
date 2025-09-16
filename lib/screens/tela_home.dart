@@ -2,17 +2,14 @@ import 'package:agrogestor/screens/tela_calendario.dart';
 import 'package:agrogestor/screens/tela_cultivo.dart';
 import 'package:agrogestor/screens/tela_saca.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'tela_login.dart';
 import 'tela_notas_fiscais.dart';
 import 'tela_custo.dart';
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
 
 class TelaHome extends StatefulWidget {
-  final int propriedadeId;
+  final String propriedadeId;
   final String nomeAgricultor;
 
   const TelaHome({
@@ -30,14 +27,6 @@ class _TelaHomeState extends State<TelaHome> {
   bool _carregando = true;
   String? _erro;
 
-  String get _apiUrlBase {
-    if (kIsWeb) return 'http://localhost/api';
-    if (Platform.isAndroid) return 'http://192.168.0.250/api';
-    return 'http://localhost/api';
-  }
-
-  String get apiUrlDashboard => '$_apiUrlBase/dashboard_dados.php';
-
   @override
   void initState() {
     super.initState();
@@ -50,25 +39,58 @@ class _TelaHomeState extends State<TelaHome> {
       _erro = null;
     });
     try {
-      final uri = Uri.parse(
-        '$apiUrlDashboard?propriedade_id=${widget.propriedadeId}',
-      );
-      final response = await http.get(uri);
-
-      if (response.statusCode == 200) {
-        final responseData = jsonDecode(response.body);
-        if (responseData['status'] == 'success') {
-          setState(() {
-            _dadosDashboard = responseData['data'];
-          });
-        } else {
-          setState(() => _erro = responseData['message']);
-        }
-      } else {
-        setState(() => _erro = 'Erro de servidor: ${response.statusCode}');
+      // Busca os dados da propriedade no Firestore
+      final doc = await FirebaseFirestore.instance
+          .collection('propriedades')
+          .doc(widget.propriedadeId)
+          .get();
+      if (!doc.exists) {
+        setState(() => _erro = 'Propriedade não encontrada.');
+        return;
       }
+      final data = doc.data() as Map<String, dynamic>;
+
+      // Exemplo: buscar cultivos e sacas relacionados a esta propriedade
+      final cultivosSnap = await FirebaseFirestore.instance
+          .collection('cultivos')
+          .where('propriedadeId', isEqualTo: widget.propriedadeId)
+          .get();
+      final totalCultivos = cultivosSnap.docs.length;
+
+      final sacasSnap = await FirebaseFirestore.instance
+          .collection('sacas')
+          .where('propriedadeId', isEqualTo: widget.propriedadeId)
+          .get();
+      // Resumo de sacas por cultivo
+      final Map<String, int> resumoSacas = {};
+      for (var doc in sacasSnap.docs) {
+        final nomeCultivo = doc['nome_cultivo'] ?? 'N/A';
+        final total = int.tryParse(doc['total_sacas']?.toString() ?? '0') ?? 0;
+        resumoSacas[nomeCultivo] = (resumoSacas[nomeCultivo] ?? 0) + total;
+      }
+
+      // Exemplo: buscar custo total (somando notas fiscais)
+      final notasSnap = await FirebaseFirestore.instance
+          .collection('notas_fiscais')
+          .where('propriedadeId', isEqualTo: widget.propriedadeId)
+          .get();
+      double custoTotal = 0;
+      for (var doc in notasSnap.docs) {
+        custoTotal += double.tryParse(doc['valor']?.toString() ?? '0') ?? 0;
+      }
+
+      setState(() {
+        _dadosDashboard = {
+          'nome_propriedade': data['nome'] ?? '',
+          'total_cultivos': totalCultivos,
+          'custo_total': custoTotal,
+          'resumo_sacas': resumoSacas.entries
+              .map((e) => {'nome_cultivo': e.key, 'total_sacas': e.value})
+              .toList(),
+        };
+      });
     } catch (e) {
-      setState(() => _erro = 'Não foi possível conectar ao servidor.');
+      setState(() => _erro = 'Erro ao carregar dados: $e');
     } finally {
       if (mounted) setState(() => _carregando = false);
     }

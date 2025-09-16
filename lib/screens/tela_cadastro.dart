@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
+// imports removidos: 'dart:convert' e 'package:http/http.dart' não são mais necessários
 import 'tela_propriedade.dart';
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
+
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class TelaCadastro extends StatefulWidget {
   const TelaCadastro({super.key});
@@ -21,18 +21,6 @@ class _TelaCadastroState extends State<TelaCadastro> {
   bool _confirmaSenhaOculta = true;
   bool _carregando = false;
 
-  String get _apiUrlBase {
-    if (kIsWeb) {
-      return 'http://localhost/api';
-    } else if (Platform.isAndroid) {
-      return 'http://192.168.0.250/api';
-    } else {
-      return 'http://localhost/api';
-    }
-  }
-
-  String get apiUrl => '$_apiUrlBase/cadastro_agricultor.php';
-
   @override
   void dispose() {
     _nomeController.dispose();
@@ -47,51 +35,54 @@ class _TelaCadastroState extends State<TelaCadastro> {
     setState(() {
       _carregando = true;
     });
-
     try {
-      final response = await http.post(
-        Uri.parse(apiUrl),
-        body: {
-          'nome': _nomeController.text,
-          'email': _emailController.text,
-          'senha': _senhaController.text,
-        },
-      );
-      final responseData = jsonDecode(response.body);
-
-      if (response.statusCode == 200 && responseData['status'] == 'success') {
-        final int agricultorId = int.parse(responseData['id'].toString());
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Cadastro realizado com sucesso! Bem-vindo!'),
-              backgroundColor: Colors.green,
-            ),
+      // Cria usuário no Firebase Auth
+      UserCredential userCredential = await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(
+            email: _emailController.text.trim(),
+            password: _senhaController.text.trim(),
           );
-
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => TelaPropriedade(
-                agricultorId: agricultorId,
-                nomeAgricultor: _nomeController.text,
-              ),
-            ),
-          );
-        }
-      } else {
+      // Salva dados no Firestore
+      await FirebaseFirestore.instance
+          .collection('usuarios')
+          .doc(userCredential.user!.uid)
+          .set({
+            'nome': _nomeController.text.trim(),
+            'email': _emailController.text.trim(),
+          });
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(responseData['message'] ?? 'Ocorreu um erro.'),
-            backgroundColor: Colors.red,
+          const SnackBar(
+            content: Text('Cadastro realizado com sucesso! Bem-vindo!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => TelaPropriedade(
+              agricultorId: userCredential.user!.uid,
+              nomeAgricultor: _nomeController.text,
+            ),
           ),
         );
       }
+    } on FirebaseAuthException catch (e) {
+      String errorMsg = 'Ocorreu um erro.';
+      if (e.code == 'email-already-in-use') {
+        errorMsg = 'Este email já está cadastrado.';
+      } else if (e.code == 'invalid-email') {
+        errorMsg = 'Email inválido.';
+      } else if (e.code == 'weak-password') {
+        errorMsg = 'A senha é muito fraca.';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
+      );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Não foi possível conectar ao servidor.'),
+        SnackBar(
+          content: Text('Erro inesperado: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -152,8 +143,9 @@ class _TelaCadastroState extends State<TelaCadastro> {
                 keyboardType: TextInputType.emailAddress,
                 validator: (value) {
                   if (value == null || value.isEmpty) return 'Insira seu email';
-                  if (!value.contains('@') || !value.contains('.'))
+                  if (!value.contains('@') || !value.contains('.')) {
                     return 'Insira um email válido';
+                  }
                   return null;
                 },
               ),
@@ -175,8 +167,9 @@ class _TelaCadastroState extends State<TelaCadastro> {
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) return 'Insira uma senha';
-                  if (value.length < 6)
+                  if (value.length < 6) {
                     return 'A senha deve ter no mínimo 6 caracteres';
+                  }
                   return null;
                 },
               ),
@@ -200,8 +193,9 @@ class _TelaCadastroState extends State<TelaCadastro> {
                   ),
                 ),
                 validator: (value) {
-                  if (value != _senhaController.text)
+                  if (value != _senhaController.text) {
                     return 'As senhas não coincidem';
+                  }
                   return null;
                 },
               ),

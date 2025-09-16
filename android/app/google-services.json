@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "616298979273",
+    "project_id": "agrogestor-5328c",
+    "storage_bucket": "agrogestor-5328c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:616298979273:android:1996b5bf11c678ab36d218",
+        "android_client_info": {
+          "package_name": "com.example.agrogestor"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDBu9pBJnpW_Uqp7TiKtsIk5ANGafub8lQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

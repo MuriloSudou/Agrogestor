@@ -30,7 +30,7 @@ class EventoCalendario {
 }
 
 class TelaCalendario extends StatefulWidget {
-  final int propriedadeId;
+  final String propriedadeId;
 
   const TelaCalendario({super.key, required this.propriedadeId});
 
@@ -109,10 +109,11 @@ class _TelaCalendarioState extends State<TelaCalendario> {
     } catch (e) {
       // Tratar erro
     } finally {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _carregando = false;
         });
+      }
     }
   }
 
@@ -143,7 +144,7 @@ class _TelaCalendarioState extends State<TelaCalendario> {
       final response = await http.post(
         Uri.parse(apiUrlCadastrar),
         body: {
-          'propriedade_id': widget.propriedadeId.toString(),
+          'propriedade_id': widget.propriedadeId,
           'data_evento': DateFormat('yyyy-MM-dd').format(_selectedDay!),
           'titulo_evento': _tituloController.text,
           'descricao_evento': _descricaoController.text,
@@ -169,10 +170,11 @@ class _TelaCalendarioState extends State<TelaCalendario> {
     } catch (e) {
       // Tratar erro
     } finally {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _carregando = false;
         });
+      }
     }
   }
 
@@ -554,7 +556,7 @@ class _TelaCalendarioState extends State<TelaCalendario> {
                                       ),
                                     ),
                                   );
-                                }).toList()
+                                })
                               else
                                 const Text('Nenhum evento para esta data.'),
                             ],

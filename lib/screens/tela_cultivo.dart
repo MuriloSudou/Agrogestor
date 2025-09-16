@@ -1,13 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:io' show Platform;
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 // NOVO: Modelo de dados para segurança e clareza
 class Cultivo {
-  final int id;
+  final String id;
   final String cultura;
   final String area;
   final String inicio;
@@ -19,18 +16,19 @@ class Cultivo {
     required this.inicio,
   });
 
-  factory Cultivo.fromJson(Map<String, dynamic> json) {
+  factory Cultivo.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
     return Cultivo(
-      id: int.parse(json['id'].toString()),
-      cultura: json['cultura'].toString(),
-      area: json['area'].toString(),
-      inicio: json['inicio'].toString(),
+      id: doc.id,
+      cultura: data['cultura'] ?? '',
+      area: data['area'] ?? '',
+      inicio: data['inicio'] ?? '',
     );
   }
 }
 
 class TelaCultivo extends StatefulWidget {
-  final int propriedadeId;
+  final String propriedadeId;
   const TelaCultivo({super.key, required this.propriedadeId});
 
   @override
@@ -44,22 +42,11 @@ class _TelaCultivoState extends State<TelaCultivo> {
   final _inicioController = TextEditingController();
   DateTime? _dataSelecionada;
 
-  List<Cultivo> _cultivos = []; // Usa o modelo de dados
-  int? _idEdicao; // Guarda o ID em vez do índice
+  List<Cultivo> _cultivos = [];
+  String? _idEdicao; // Guarda o ID do documento Firestore
 
   bool _carregando = false;
   bool _inicializando = true;
-
-  String get _apiUrlBase {
-    if (kIsWeb) return 'http://localhost/api';
-    if (Platform.isAndroid) return 'http://192.168.0.250/api';
-    return 'http://localhost/api';
-  }
-
-  String get apiUrlListar => '$_apiUrlBase/listar_cultivos.php';
-  String get apiUrlCadastro => '$_apiUrlBase/cadastro_cultivos.php';
-  String get apiUrlEdicao => '$_apiUrlBase/editar_cultivo.php';
-  String get apiUrlExclusao => '$_apiUrlBase/excluir_cultivo.php';
 
   @override
   void initState() {
@@ -80,18 +67,15 @@ class _TelaCultivoState extends State<TelaCultivo> {
       _inicializando = true;
     });
     try {
-      // CORRIGIDO: Usa http.get para listar
-      final uri = Uri.parse(
-        '$apiUrlListar?propriedade_id=${widget.propriedadeId}',
-      );
-      final response = await http.get(uri);
-
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        setState(() {
-          _cultivos = data.map((json) => Cultivo.fromJson(json)).toList();
-        });
-      }
+      final query = await FirebaseFirestore.instance
+          .collection('cultivos')
+          .where('propriedadeId', isEqualTo: widget.propriedadeId)
+          .get();
+      setState(() {
+        _cultivos = query.docs
+            .map((doc) => Cultivo.fromFirestore(doc))
+            .toList();
+      });
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -102,10 +86,11 @@ class _TelaCultivoState extends State<TelaCultivo> {
         );
       }
     } finally {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _inicializando = false;
         });
+      }
     }
   }
 
@@ -138,55 +123,63 @@ class _TelaCultivoState extends State<TelaCultivo> {
 
   Future<void> _salvarOuAtualizarCultivo() async {
     if (!_formKey.currentState!.validate()) return;
-
     setState(() {
       _carregando = true;
     });
-
-    final url = _idEdicao == null ? apiUrlCadastro : apiUrlEdicao;
-    final body = {
-      'propriedade_id': widget.propriedadeId.toString(),
-      'cultura': _cultivoController.text,
-      'area': _areaController.text.replaceAll(',', '.'),
-      'inicio': DateFormat('yyyy-MM-dd').format(_dataSelecionada!),
-    };
-
-    if (_idEdicao != null) {
-      body['id'] = _idEdicao.toString();
-    }
-
     try {
-      final response = await http.post(Uri.parse(url), body: body);
-      final data = jsonDecode(response.body);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(data['message'] ?? 'Operação concluída.'),
-            backgroundColor:
-                (data['status'] == 'success' || data['status'] == 'info')
-                ? Colors.green
-                : Colors.red,
-          ),
-        );
-        if (data['status'] == 'success') {
-          _carregarCultivos();
-          _limparCampos();
+      if (_idEdicao == null) {
+        // Cadastro
+        await FirebaseFirestore.instance.collection('cultivos').add({
+          'propriedadeId': widget.propriedadeId,
+          'cultura': _cultivoController.text.trim(),
+          'area': _areaController.text.replaceAll(',', '.'),
+          'inicio': DateFormat('yyyy-MM-dd').format(_dataSelecionada!),
+          'dataCadastro': FieldValue.serverTimestamp(),
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Cultivo cadastrado com sucesso!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        // Edição
+        await FirebaseFirestore.instance
+            .collection('cultivos')
+            .doc(_idEdicao)
+            .update({
+              'cultura': _cultivoController.text.trim(),
+              'area': _areaController.text.replaceAll(',', '.'),
+              'inicio': DateFormat('yyyy-MM-dd').format(_dataSelecionada!),
+            });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Cultivo atualizado com sucesso!'),
+              backgroundColor: Colors.green,
+            ),
+          );
         }
       }
+      _carregarCultivos();
+      _limparCampos();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erro de conexão: $e'),
+            content: Text('Erro ao salvar: $e'),
             backgroundColor: Colors.red,
           ),
         );
       }
     } finally {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _carregando = false;
         });
+      }
     }
   }
 
@@ -195,7 +188,6 @@ class _TelaCultivoState extends State<TelaCultivo> {
       _idEdicao = cultivo.id;
       _cultivoController.text = cultivo.cultura;
       _areaController.text = cultivo.area;
-      // CORRIGIDO: Formato da data para corresponder à API
       _dataSelecionada = DateTime.parse(cultivo.inicio);
       _inicioController.text = DateFormat(
         'dd/MM/yyyy',
@@ -203,7 +195,7 @@ class _TelaCultivoState extends State<TelaCultivo> {
     });
   }
 
-  void _mostrarDialogoConfirmacao(int cultivoId) {
+  void _mostrarDialogoConfirmacao(String cultivoId) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -229,25 +221,20 @@ class _TelaCultivoState extends State<TelaCultivo> {
     );
   }
 
-  Future<void> _excluirCultivo(int cultivoId) async {
+  Future<void> _excluirCultivo(String cultivoId) async {
     try {
-      final response = await http.post(
-        Uri.parse(apiUrlExclusao),
-        body: {'id': cultivoId.toString()},
-      );
-      final data = jsonDecode(response.body);
+      await FirebaseFirestore.instance
+          .collection('cultivos')
+          .doc(cultivoId)
+          .delete();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(data['message']),
-            backgroundColor: data['status'] == 'success'
-                ? Colors.green
-                : Colors.red,
+          const SnackBar(
+            content: Text('Cultivo excluído com sucesso!'),
+            backgroundColor: Colors.green,
           ),
         );
-        if (data['status'] == 'success') {
-          _carregarCultivos();
-        }
+        _carregarCultivos();
       }
     } catch (e) {
       if (mounted) {

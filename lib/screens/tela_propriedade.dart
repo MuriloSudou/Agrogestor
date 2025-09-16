@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
+// Removidos imports não utilizados
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class TelaPropriedade extends StatefulWidget {
-  final int agricultorId;
+  final String agricultorId;
   final String nomeAgricultor;
+  final String? propriedadeId;
+  final String? nome;
+  final String? area;
 
   const TelaPropriedade({
     super.key,
     required this.agricultorId,
     required this.nomeAgricultor,
+    this.propriedadeId,
+    this.nome,
+    this.area,
   });
 
   @override
@@ -26,13 +31,13 @@ class _TelaPropriedadeState extends State<TelaPropriedade> {
   final _formKey = GlobalKey<FormState>();
   bool _carregando = false;
 
-  String get _apiUrlBase {
-    if (kIsWeb) return 'http://localhost/api';
-    if (Platform.isAndroid) return 'http://192.168.0.250/api';
-    return 'http://localhost/api';
+  @override
+  void initState() {
+    super.initState();
+    if (widget.nome != null) _propriedadeController.text = widget.nome!;
+    if (widget.area != null) _areaController.text = widget.area!;
+    // Para matrícula e endereço, pode ser expandido se necessário
   }
-
-  String get apiUrl => '$_apiUrlBase/cadastro_propriedade.php';
 
   @override
   void dispose() {
@@ -45,45 +50,60 @@ class _TelaPropriedadeState extends State<TelaPropriedade> {
 
   Future<void> _salvarPropriedade() async {
     if (!_formKey.currentState!.validate()) return;
-
     setState(() {
       _carregando = true;
     });
-
     try {
-      final response = await http.post(
-        Uri.parse(apiUrl),
-        body: {
-          // Nomes dos campos corrigidos para corresponder à API
-          'agricultor_id': widget.agricultorId.toString(),
-          'nome': _propriedadeController.text,
-          'matricula': _matriculaController.text,
-          'area_ha': _areaController.text.replaceAll(',', '.'),
-          'endereco': _enderecoController.text,
-        },
-      );
-      final responseData = jsonDecode(response.body);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(responseData['message'] ?? 'Ocorreu um erro.'),
-            backgroundColor: responseData['status'] == 'success'
-                ? Colors.green
-                : Colors.red,
-          ),
-        );
-        // CORRIGIDO: Se o cadastro for bem-sucedido, fecha a tela e retorna 'true'
-        // para que a tela anterior possa atualizar a lista.
-        if (responseData['status'] == 'success') {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        throw Exception('Usuário não autenticado.');
+      }
+      if (widget.propriedadeId != null) {
+        // Edição
+        await FirebaseFirestore.instance
+            .collection('propriedades')
+            .doc(widget.propriedadeId)
+            .update({
+              'nome': _propriedadeController.text.trim(),
+              'area_ha': _areaController.text.trim(),
+              'matricula': _matriculaController.text.trim(),
+              'endereco': _enderecoController.text.trim(),
+            });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Propriedade atualizada com sucesso!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          Navigator.pop(context, true);
+        }
+      } else {
+        // Cadastro
+        await FirebaseFirestore.instance.collection('propriedades').add({
+          'uid': user.uid,
+          'nome': _propriedadeController.text.trim(),
+          'matricula': _matriculaController.text.trim(),
+          'area_ha': _areaController.text.trim(),
+          'endereco': _enderecoController.text.trim(),
+          'dataCadastro': FieldValue.serverTimestamp(),
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Propriedade cadastrada com sucesso!'),
+              backgroundColor: Colors.green,
+            ),
+          );
           Navigator.pop(context, true);
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Não foi possível conectar ao servidor.'),
+          SnackBar(
+            content: Text('Erro ao salvar: $e'),
+            backgroundColor: Colors.red,
           ),
         );
       }
@@ -99,7 +119,13 @@ class _TelaPropriedadeState extends State<TelaPropriedade> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Cadastrar Nova Propriedade')),
+      appBar: AppBar(
+        title: Text(
+          widget.propriedadeId != null
+              ? 'Editar Propriedade'
+              : 'Cadastrar Nova Propriedade',
+        ),
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         child: Form(

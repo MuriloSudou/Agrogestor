@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:io' show Platform;
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
 class TelaCusto extends StatefulWidget {
-  final int propriedadeId;
+  final String propriedadeId;
 
   const TelaCusto({super.key, required this.propriedadeId});
 
@@ -24,63 +21,49 @@ class _TelaCustoState extends State<TelaCusto> {
   List<Map<String, dynamic>> _cultivos = [];
   List<Map<String, dynamic>> _notasFiscais = [];
 
-  // ATUALIZADO: Usando 10.0.2.2 para o emulador Android
-  String get _apiUrlBase {
-    if (kIsWeb) {
-      return 'http://localhost/api';
-    } else if (Platform.isAndroid) {
-      return 'http://192.168.0.250/api';
-    } else {
-      return 'http://localhost/api';
-    }
-  }
-
-  String get apiUrlListarCultivos => '$_apiUrlBase/listar_cultivos.php';
-  String get apiUrlListarNf => '$_apiUrlBase/listar_nf.php';
-
   @override
   void initState() {
     super.initState();
     _carregarDados();
   }
 
-  // ATUALIZADO: Usando http.get para compatibilidade com a API
   Future<void> _carregarDados() async {
     setState(() {
       _inicializando = true;
     });
-
     try {
-      final uriCultivos = Uri.parse(
-        '$apiUrlListarCultivos?propriedade_id=${widget.propriedadeId}',
-      );
-      final uriNotas = Uri.parse(
-        '$apiUrlListarNf?propriedade_id=${widget.propriedadeId}',
-      );
+      // Buscar cultivos do Firestore
+      final cultivosQuery = await FirebaseFirestore.instance
+          .collection('cultivos')
+          .where('propriedadeId', isEqualTo: widget.propriedadeId)
+          .get();
+      final cultivosData = cultivosQuery.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'id': doc.id,
+          'cultura': data['cultura'] ?? '',
+          'area': data['area'] ?? '0',
+        };
+      }).toList();
 
-      final cultivosResponse = await http.get(uriCultivos);
-      final notasResponse = await http.get(uriNotas);
+      // Buscar notas fiscais do Firestore
+      final notasQuery = await FirebaseFirestore.instance
+          .collection('notas_fiscais')
+          .where('propriedadeId', isEqualTo: widget.propriedadeId)
+          .get();
+      final notasData = notasQuery.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'id': doc.id,
+          'cultivo_id': data['cultivoId'] ?? '',
+          'valor': data['valor'] ?? '0',
+        };
+      }).toList();
 
-      if (cultivosResponse.statusCode == 200 &&
-          notasResponse.statusCode == 200) {
-        final dynamic cultivosData = jsonDecode(cultivosResponse.body);
-        final dynamic notasData = jsonDecode(notasResponse.body);
-
-        if (cultivosData is List && notasData is List) {
-          setState(() {
-            _cultivos = List<Map<String, dynamic>>.from(cultivosData);
-            _notasFiscais = List<Map<String, dynamic>>.from(notasData);
-
-            if (_cultivos.isNotEmpty) {
-              final nomesUnicos = _cultivos
-                  .map((c) => c['cultura'].toString())
-                  .toSet()
-                  .toList();
-              // Não pré-seleciona mais, deixa o usuário escolher
-            }
-          });
-        }
-      }
+      setState(() {
+        _cultivos = cultivosData;
+        _notasFiscais = notasData;
+      });
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -217,7 +200,7 @@ class _TelaCustoState extends State<TelaCusto> {
                                     borderSide: BorderSide(color: primaryColor),
                                   ),
                                 ),
-                                value: _cultivoSelecionado,
+                                initialValue: _cultivoSelecionado,
                                 hint: const Text('Selecione um cultivo'),
                                 // ATUALIZADO: A lógica de cálculo agora está aqui
                                 onChanged: (String? newValue) {

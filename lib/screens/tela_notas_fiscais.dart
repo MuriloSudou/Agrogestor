@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:intl/intl.dart';
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'tela_visualizar_nf.dart';
 
 class CultivoDropdown {
@@ -19,7 +17,7 @@ class CultivoDropdown {
 }
 
 class TelaNotasFiscais extends StatefulWidget {
-  final int propriedadeId;
+  final String propriedadeId;
   final NotaFiscal? notaParaEditar;
 
   const TelaNotasFiscais({
@@ -99,10 +97,11 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
     } catch (e) {
       // Tratar erro
     } finally {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _carregandoCultivos = false;
         });
+      }
     }
   }
 
@@ -132,7 +131,7 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
 
     final String url = _modoEdicao ? apiUrlEdicao : apiUrlCadastro;
     final Map<String, String> body = {
-      'propriedade_id': widget.propriedadeId.toString(),
+      'propriedade_id': widget.propriedadeId,
       'cultivo_id': _cultivoSelecionadoId.toString(),
       'numero_nota': _numeroNotaController.text,
       'valor': _valorController.text.replaceAll(',', '.'),
@@ -163,10 +162,11 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
         context,
       ).showSnackBar(SnackBar(content: Text('Erro ao salvar: $e')));
     } finally {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _carregando = false;
         });
+      }
     }
   }
 
@@ -288,7 +288,7 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
                         labelText: 'Associar ao Cultivo',
                         border: OutlineInputBorder(),
                       ),
-                      value: _cultivoSelecionadoId,
+                      initialValue: _cultivoSelecionadoId,
                       items: _cultivos.map<DropdownMenuItem<int>>((cultivo) {
                         return DropdownMenuItem<int>(
                           value: cultivo.id,

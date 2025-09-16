@@ -38,7 +38,7 @@ class NotaFiscal {
 }
 
 class TelaVisualizarNF extends StatefulWidget {
-  final int propriedadeId;
+  final String propriedadeId;
   const TelaVisualizarNF({super.key, required this.propriedadeId});
 
   @override
@@ -84,10 +84,11 @@ class _TelaVisualizarNFState extends State<TelaVisualizarNF> {
     } catch (e) {
       // Tratar erro
     } finally {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _carregando = false;
         });
+      }
     }
   }
 

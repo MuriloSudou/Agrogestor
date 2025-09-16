@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:firebase_auth/firebase_auth.dart';
 import 'tela_cadastro.dart';
 import 'package:agrogestor/screens/tela_selecao_propriedade.dart';
 import 'dart:io' show Platform;
@@ -43,48 +42,41 @@ class _TelaLoginState extends State<TelaLogin> {
     if (!_formKey.currentState!.validate()) {
       return;
     }
-
     setState(() {
       _carregando = true;
     });
-
     try {
-      final response = await http.post(
-        Uri.parse(apiUrl),
-        body: {'email': _emailController.text, 'senha': _senhaController.text},
+      UserCredential userCredential = await FirebaseAuth.instance
+          .signInWithEmailAndPassword(
+            email: _emailController.text.trim(),
+            password: _senhaController.text.trim(),
+          );
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => TelaSelecaoPropriedade(
+            agricultorId: userCredential.user!.uid,
+            nomeAgricultor: userCredential.user?.email ?? '',
+          ),
+        ),
       );
-
-      final responseData = jsonDecode(response.body);
-
-      if (response.statusCode == 200 && responseData['status'] == 'success') {
-        final int agricultorId = int.parse(
-          responseData['data']['id'].toString(),
-        );
-        final String nomeAgricultor = responseData['data']['nome'];
-
-        if (!mounted) return;
-
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => TelaSelecaoPropriedade(
-              agricultorId: agricultorId,
-              nomeAgricultor: nomeAgricultor,
-            ),
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(responseData['message'] ?? 'Erro desconhecido.'),
-            backgroundColor: Colors.red,
-          ),
-        );
+    } on FirebaseAuthException catch (e) {
+      String errorMsg = 'Erro desconhecido.';
+      if (e.code == 'user-not-found') {
+        errorMsg = 'Usuário não encontrado.';
+      } else if (e.code == 'wrong-password') {
+        errorMsg = 'Senha incorreta.';
+      } else if (e.code == 'invalid-email') {
+        errorMsg = 'Email inválido.';
       }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
+      );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Não foi possível conectar ao servidor.'),
+        SnackBar(
+          content: Text('Erro inesperado: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -135,8 +127,9 @@ class _TelaLoginState extends State<TelaLogin> {
                         keyboardType: TextInputType.emailAddress,
                         validator: (v) {
                           if (v == null || v.isEmpty) return 'Insira seu email';
-                          if (!v.contains('@') || !v.contains('.'))
+                          if (!v.contains('@') || !v.contains('.')) {
                             return 'Insira um email válido';
+                          }
                           return null;
                         },
                       ),
