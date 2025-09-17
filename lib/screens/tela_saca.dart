@@ -1,13 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 // Modelo de dados para os registos de sacas
 class SacaColhida {
-  final int id;
+  final String id;
   final String nomeCultivo;
   final int quantidade;
   final String pesoMedio;
@@ -21,28 +18,27 @@ class SacaColhida {
     required this.dataColheita,
   });
 
-  factory SacaColhida.fromJson(Map<String, dynamic> json) {
+  factory SacaColhida.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
     return SacaColhida(
-      id: int.parse(json['id'].toString()),
-      nomeCultivo: json['nome_cultivo'].toString(),
-      quantidade: int.parse(json['quantidade'].toString()),
-      pesoMedio: json['peso_medio_kg'].toString(),
-      dataColheita: json['data_colheita'].toString(),
+      id: doc.id,
+      nomeCultivo: data['nome_cultivo'] ?? '',
+      quantidade: int.tryParse(data['quantidade'].toString()) ?? 0,
+      pesoMedio: data['peso_medio_kg']?.toString() ?? '',
+      dataColheita: data['data_colheita']?.toString() ?? '',
     );
   }
 }
 
 // Modelo de dados para os cultivos no menu de seleção
 class CultivoParaSaca {
-  final int id;
+  final String id;
   final String cultura;
   CultivoParaSaca({required this.id, required this.cultura});
 
-  factory CultivoParaSaca.fromJson(Map<String, dynamic> json) {
-    return CultivoParaSaca(
-      id: int.parse(json['id'].toString()),
-      cultura: json['cultura'].toString(),
-    );
+  factory CultivoParaSaca.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return CultivoParaSaca(id: doc.id, cultura: data['cultura'] ?? '');
   }
 }
 
@@ -60,23 +56,12 @@ class _TelaSacasState extends State<TelaSacas> {
   final _pesoController = TextEditingController();
   final _dataController = TextEditingController();
   DateTime? _dataSelecionada;
-  int? _cultivoSelecionadoId;
+  String? _cultivoSelecionadoId;
 
   List<SacaColhida> _sacas = [];
   List<CultivoParaSaca> _cultivosDisponiveis = [];
 
   bool _carregando = true;
-
-  String get _apiUrlBase {
-    if (kIsWeb) return 'http://localhost/api';
-    if (Platform.isAndroid) return 'http://10.0.2.2/api';
-    return 'http://localhost/api';
-  }
-
-  String get apiUrlListarSacas => '$_apiUrlBase/listar_sacas.php';
-  String get apiUrlListarCultivos => '$_apiUrlBase/listar_cultivos.php';
-  String get apiUrlCadastro => '$_apiUrlBase/cadastrar_saca.php';
-  String get apiUrlExclusao => '$_apiUrlBase/excluir_saca.php';
 
   @override
   void initState() {
@@ -106,16 +91,15 @@ class _TelaSacasState extends State<TelaSacas> {
 
   Future<void> _carregarSacas() async {
     try {
-      final uri = Uri.parse(
-        '$apiUrlListarSacas?propriedade_id=${widget.propriedadeId}',
-      );
-      final response = await http.get(uri);
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        setState(() {
-          _sacas = data.map((json) => SacaColhida.fromJson(json)).toList();
-        });
-      }
+      final query = await FirebaseFirestore.instance
+          .collection('sacas_colhidas')
+          .where('propriedade_id', isEqualTo: widget.propriedadeId)
+          .get();
+      setState(() {
+        _sacas = query.docs
+            .map((doc) => SacaColhida.fromFirestore(doc))
+            .toList();
+      });
     } catch (e) {
       // Tratar erro
     }
@@ -123,18 +107,24 @@ class _TelaSacasState extends State<TelaSacas> {
 
   Future<void> _carregarCultivos() async {
     try {
-      final uri = Uri.parse(
-        '$apiUrlListarCultivos?propriedade_id=${widget.propriedadeId}',
-      );
-      final response = await http.get(uri);
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        setState(() {
-          _cultivosDisponiveis = data
-              .map((json) => CultivoParaSaca.fromJson(json))
-              .toList();
-        });
-      }
+      final query = await FirebaseFirestore.instance
+          .collection('cultivos')
+          .where('propriedadeId', isEqualTo: widget.propriedadeId)
+          .get();
+      final cultivos = query.docs
+          .map((doc) => CultivoParaSaca.fromFirestore(doc))
+          .toList();
+      setState(() {
+        _cultivosDisponiveis = cultivos;
+        // Se só houver um cultivo, seleciona automaticamente
+        if (_cultivosDisponiveis.length == 1) {
+          _cultivoSelecionadoId = _cultivosDisponiveis.first.id;
+        } else if (!_cultivosDisponiveis.any(
+          (c) => c.id == _cultivoSelecionadoId,
+        )) {
+          _cultivoSelecionadoId = null;
+        }
+      });
     } catch (e) {
       // Tratar erro
     }
@@ -175,30 +165,26 @@ class _TelaSacasState extends State<TelaSacas> {
     });
 
     try {
-      final response = await http.post(
-        Uri.parse(apiUrlCadastro),
-        body: {
-          'cultivo_id': _cultivoSelecionadoId.toString(),
-          'quantidade': _sacksController.text,
-          'peso_medio_kg': _pesoController.text.replaceAll(',', '.'),
-          'data_colheita': DateFormat('yyyy-MM-dd').format(_dataSelecionada!),
-        },
-      );
-      final responseData = jsonDecode(response.body);
-
+      await FirebaseFirestore.instance.collection('sacas_colhidas').add({
+        'propriedade_id': widget.propriedadeId,
+        'cultivo_id': _cultivoSelecionadoId,
+        'nome_cultivo': _cultivosDisponiveis
+            .firstWhere((c) => c.id == _cultivoSelecionadoId)
+            .cultura,
+        'quantidade': int.tryParse(_sacksController.text) ?? 0,
+        'peso_medio_kg': _pesoController.text.replaceAll(',', '.'),
+        'data_colheita': DateFormat('yyyy-MM-dd').format(_dataSelecionada!),
+        'dataCadastro': FieldValue.serverTimestamp(),
+      });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(responseData['message']),
-            backgroundColor: responseData['status'] == 'success'
-                ? Colors.green
-                : Colors.red,
+          const SnackBar(
+            content: Text('Registro salvo com sucesso!'),
+            backgroundColor: Colors.green,
           ),
         );
-        if (responseData['status'] == 'success') {
-          _limparCampos();
-          _carregarDadosIniciais();
-        }
+        _limparCampos();
+        _carregarDadosIniciais();
       }
     } catch (e) {
       // Tratar erro
@@ -211,25 +197,20 @@ class _TelaSacasState extends State<TelaSacas> {
     }
   }
 
-  Future<void> _excluirSaca(int sacaId) async {
+  Future<void> _excluirSaca(String sacaId) async {
     try {
-      final response = await http.post(
-        Uri.parse(apiUrlExclusao),
-        body: {'id': sacaId.toString()},
-      );
-      final data = jsonDecode(response.body);
+      await FirebaseFirestore.instance
+          .collection('sacas_colhidas')
+          .doc(sacaId)
+          .delete();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(data['message']),
-            backgroundColor: data['status'] == 'success'
-                ? Colors.green
-                : Colors.red,
+          const SnackBar(
+            content: Text('Registro excluído com sucesso!'),
+            backgroundColor: Colors.green,
           ),
         );
-        if (data['status'] == 'success') {
-          _carregarDadosIniciais();
-        }
+        _carregarDadosIniciais();
       }
     } catch (e) {
       // Tratar erro
@@ -294,22 +275,33 @@ class _TelaSacasState extends State<TelaSacas> {
                       key: _formKey,
                       child: Column(
                         children: [
-                          DropdownButtonFormField<int>(
-                            initialValue: _cultivoSelecionadoId,
+                          DropdownButtonFormField<String>(
+                            value: _cultivoSelecionadoId,
                             decoration: const InputDecoration(
                               labelText: 'Cultivo*',
                               border: OutlineInputBorder(),
                             ),
-                            items: _cultivosDisponiveis.map((cultivo) {
-                              return DropdownMenuItem<int>(
-                                value: cultivo.id,
-                                child: Text(cultivo.cultura),
-                              );
-                            }).toList(),
-                            onChanged: (value) =>
-                                setState(() => _cultivoSelecionadoId = value),
-                            validator: (v) =>
-                                v == null ? 'Selecione um cultivo' : null,
+                            items: _cultivosDisponiveis.isEmpty
+                                ? [
+                                    const DropdownMenuItem<String>(
+                                      value: null,
+                                      child: Text('Nenhum cultivo disponível'),
+                                    ),
+                                  ]
+                                : _cultivosDisponiveis.map((cultivo) {
+                                    return DropdownMenuItem<String>(
+                                      value: cultivo.id,
+                                      child: Text(cultivo.cultura),
+                                    );
+                                  }).toList(),
+                            onChanged: _cultivosDisponiveis.isEmpty
+                                ? null
+                                : (value) => setState(
+                                    () => _cultivoSelecionadoId = value,
+                                  ),
+                            validator: (v) => _cultivosDisponiveis.isEmpty
+                                ? 'Cadastre um cultivo primeiro'
+                                : (v == null ? 'Selecione um cultivo' : null),
                           ),
                           const SizedBox(height: 16),
                           TextFormField(

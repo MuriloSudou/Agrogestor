@@ -1,18 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'tela_visualizar_nf.dart';
 
 class CultivoDropdown {
-  final int id;
+  final String id;
   final String cultura;
   CultivoDropdown({required this.id, required this.cultura});
-  factory CultivoDropdown.fromJson(Map<String, dynamic> json) {
-    return CultivoDropdown(
-      id: int.parse(json['id'].toString()),
-      cultura: json['cultura'].toString(),
-    );
+  factory CultivoDropdown.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return CultivoDropdown(id: doc.id, cultura: data['cultura'] ?? '');
   }
 }
 
@@ -39,17 +36,8 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
   bool _carregandoCultivos = true;
 
   List<CultivoDropdown> _cultivos = [];
-  int? _cultivoSelecionadoId;
+  String? _cultivoSelecionadoId;
   bool get _modoEdicao => widget.notaParaEditar != null;
-
-  String get _apiUrlBase {
-    return 'http://192.168.0.250/api';
-  }
-
-  String get apiUrlListagemCultivos => '$_apiUrlBase/listar_cultivos.php';
-  String get apiUrlCadastro => '$_apiUrlBase/cadastro_nf.php';
-  String get apiUrlEdicao => '$_apiUrlBase/editar_nf.php';
-  String get apiUrlExclusao => '$_apiUrlBase/deletar_nf.php';
 
   @override
   void initState() {
@@ -59,7 +47,7 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
       _numeroNotaController.text = nota.numero;
       _valorController.text = nota.valor.replaceAll(',', '.');
       _dataSelecionada = DateTime.parse(nota.dataEmissao);
-      _cultivoSelecionadoId = nota.cultivoId;
+      _cultivoSelecionadoId = nota.cultivoId?.toString();
     }
     _listarCultivos();
   }
@@ -76,24 +64,21 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
       _carregandoCultivos = true;
     });
     try {
-      final uri = Uri.parse(
-        '$apiUrlListagemCultivos?propriedade_id=${widget.propriedadeId}',
-      );
-      final response = await http.get(uri);
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        setState(() {
-          _cultivos = data
-              .map((json) => CultivoDropdown.fromJson(json))
-              .toList();
-          if (_modoEdicao && _cultivoSelecionadoId != null) {
-            final idsDisponiveis = _cultivos.map((c) => c.id).toList();
-            if (!idsDisponiveis.contains(_cultivoSelecionadoId)) {
-              _cultivoSelecionadoId = null;
-            }
+      final query = await FirebaseFirestore.instance
+          .collection('cultivos')
+          .where('propriedadeId', isEqualTo: widget.propriedadeId)
+          .get();
+      setState(() {
+        _cultivos = query.docs
+            .map((doc) => CultivoDropdown.fromFirestore(doc))
+            .toList();
+        if (_modoEdicao && _cultivoSelecionadoId != null) {
+          final idsDisponiveis = _cultivos.map((c) => c.id).toList();
+          if (!idsDisponiveis.contains(_cultivoSelecionadoId)) {
+            _cultivoSelecionadoId = null;
           }
-        });
-      }
+        }
+      });
     } catch (e) {
       // Tratar erro
     } finally {
@@ -129,33 +114,47 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
       _carregando = true;
     });
 
-    final String url = _modoEdicao ? apiUrlEdicao : apiUrlCadastro;
-    final Map<String, String> body = {
-      'propriedade_id': widget.propriedadeId,
-      'cultivo_id': _cultivoSelecionadoId.toString(),
-      'numero_nota': _numeroNotaController.text,
-      'valor': _valorController.text.replaceAll(',', '.'),
-      'data_emissao': DateFormat('yyyy-MM-dd').format(_dataSelecionada!),
-    };
-    if (_modoEdicao) {
-      body['id'] = widget.notaParaEditar!.id.toString();
-    }
-
     try {
-      final response = await http.post(Uri.parse(url), body: body);
-      final responseData = jsonDecode(response.body);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(responseData['message']),
-            backgroundColor:
-                (responseData['status'] == 'success' ||
-                    responseData['status'] == 'info')
-                ? Colors.green
-                : Colors.red,
-          ),
-        );
-        if (responseData['status'] == 'success') Navigator.pop(context, true);
+      if (_modoEdicao) {
+        // Atualizar nota fiscal
+        await FirebaseFirestore.instance
+            .collection('notas_fiscais')
+            .doc(widget.notaParaEditar!.id.toString())
+            .update({
+              'propriedadeId': widget.propriedadeId,
+              'cultivoId': _cultivoSelecionadoId,
+              'numero': _numeroNotaController.text,
+              'valor': _valorController.text.replaceAll(',', '.'),
+              'dataEmissao': DateFormat('yyyy-MM-dd').format(_dataSelecionada!),
+            });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Nota fiscal atualizada com sucesso!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          Navigator.pop(context, true);
+        }
+      } else {
+        // Cadastrar nova nota fiscal
+        await FirebaseFirestore.instance.collection('notas_fiscais').add({
+          'propriedadeId': widget.propriedadeId,
+          'cultivoId': _cultivoSelecionadoId,
+          'numero': _numeroNotaController.text,
+          'valor': _valorController.text.replaceAll(',', '.'),
+          'dataEmissao': DateFormat('yyyy-MM-dd').format(_dataSelecionada!),
+          'dataCadastro': FieldValue.serverTimestamp(),
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Nota fiscal cadastrada com sucesso!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          Navigator.pop(context, true);
+        }
       }
     } catch (e) {
       ScaffoldMessenger.of(
@@ -200,24 +199,18 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
       });
 
       try {
-        final response = await http.post(
-          Uri.parse(apiUrlExclusao),
-          body: {'id': widget.notaParaEditar!.id.toString()},
-        );
-        final responseData = jsonDecode(response.body);
-
+        await FirebaseFirestore.instance
+            .collection('notas_fiscais')
+            .doc(widget.notaParaEditar!.id.toString())
+            .delete();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(responseData['message']),
-              backgroundColor: responseData['status'] == 'success'
-                  ? Colors.green
-                  : Colors.red,
+            const SnackBar(
+              content: Text('Nota fiscal excluída com sucesso!'),
+              backgroundColor: Colors.green,
             ),
           );
-          if (responseData['status'] == 'success') {
-            Navigator.pop(context, true);
-          }
+          Navigator.pop(context, true);
         }
       } catch (e) {
         if (mounted) {
@@ -283,19 +276,19 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
               const SizedBox(height: 16),
               _carregandoCultivos
                   ? const Center(child: CircularProgressIndicator())
-                  : DropdownButtonFormField<int>(
+                  : DropdownButtonFormField<String>(
                       decoration: const InputDecoration(
                         labelText: 'Associar ao Cultivo',
                         border: OutlineInputBorder(),
                       ),
-                      initialValue: _cultivoSelecionadoId,
-                      items: _cultivos.map<DropdownMenuItem<int>>((cultivo) {
-                        return DropdownMenuItem<int>(
+                      value: _cultivoSelecionadoId,
+                      items: _cultivos.map<DropdownMenuItem<String>>((cultivo) {
+                        return DropdownMenuItem<String>(
                           value: cultivo.id,
                           child: Text(cultivo.cultura),
                         );
                       }).toList(),
-                      onChanged: (int? newValue) {
+                      onChanged: (String? newValue) {
                         setState(() => _cultivoSelecionadoId = newValue);
                       },
                       validator: (v) =>

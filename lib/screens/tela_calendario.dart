@@ -1,13 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'package:intl/intl.dart';
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 // Modelo de dados para os eventos
 class EventoCalendario {
-  final int id;
+  final String id;
   final DateTime data;
   final String titulo;
   final String descricao;
@@ -19,12 +16,13 @@ class EventoCalendario {
     required this.descricao,
   });
 
-  factory EventoCalendario.fromJson(Map<String, dynamic> json) {
+  factory EventoCalendario.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
     return EventoCalendario(
-      id: int.parse(json['id'].toString()),
-      data: DateTime.parse(json['data_evento'].toString()),
-      titulo: json['titulo_evento'].toString(),
-      descricao: json['descricao_evento'].toString(),
+      id: doc.id,
+      data: DateTime.parse(data['data_evento']),
+      titulo: data['titulo_evento'] ?? '',
+      descricao: data['descricao_evento'] ?? '',
     );
   }
 }
@@ -50,16 +48,6 @@ class _TelaCalendarioState extends State<TelaCalendario> {
   Map<DateTime, List<EventoCalendario>> _events = {};
   bool _carregando = true;
 
-  String get _apiUrlBase {
-    if (kIsWeb) return 'http://localhost/api';
-    if (Platform.isAndroid) return 'http://192.168.0.250/api';
-    return 'http://localhost/api';
-  }
-
-  String get apiUrlListar => '$_apiUrlBase/listar_eventos.php';
-  String get apiUrlCadastrar => '$_apiUrlBase/cadastrar_evento.php';
-  String get apiUrlExcluir => '$_apiUrlBase/excluir_evento.php';
-
   @override
   void initState() {
     super.initState();
@@ -79,33 +67,30 @@ class _TelaCalendarioState extends State<TelaCalendario> {
       _carregando = true;
     });
     try {
-      final uri = Uri.parse(
-        '$apiUrlListar?propriedade_id=${widget.propriedadeId}',
-      );
-      final response = await http.get(uri);
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        final List<EventoCalendario> eventosCarregados = data
-            .map((json) => EventoCalendario.fromJson(json))
-            .toList();
+      final query = await FirebaseFirestore.instance
+          .collection('eventos_calendario')
+          .where('propriedade_id', isEqualTo: widget.propriedadeId)
+          .get();
+      final List<EventoCalendario> eventosCarregados = query.docs
+          .map((doc) => EventoCalendario.fromFirestore(doc))
+          .toList();
 
-        final Map<DateTime, List<EventoCalendario>> eventosMapeados = {};
-        for (var evento in eventosCarregados) {
-          final dia = DateTime.utc(
-            evento.data.year,
-            evento.data.month,
-            evento.data.day,
-          );
-          if (eventosMapeados[dia] == null) {
-            eventosMapeados[dia] = [];
-          }
-          eventosMapeados[dia]!.add(evento);
+      final Map<DateTime, List<EventoCalendario>> eventosMapeados = {};
+      for (var evento in eventosCarregados) {
+        final dia = DateTime.utc(
+          evento.data.year,
+          evento.data.month,
+          evento.data.day,
+        );
+        if (eventosMapeados[dia] == null) {
+          eventosMapeados[dia] = [];
         }
-
-        setState(() {
-          _events = eventosMapeados;
-        });
+        eventosMapeados[dia]!.add(evento);
       }
+
+      setState(() {
+        _events = eventosMapeados;
+      });
     } catch (e) {
       // Tratar erro
     } finally {
@@ -141,31 +126,23 @@ class _TelaCalendarioState extends State<TelaCalendario> {
     });
 
     try {
-      final response = await http.post(
-        Uri.parse(apiUrlCadastrar),
-        body: {
-          'propriedade_id': widget.propriedadeId,
-          'data_evento': DateFormat('yyyy-MM-dd').format(_selectedDay!),
-          'titulo_evento': _tituloController.text,
-          'descricao_evento': _descricaoController.text,
-        },
-      );
-
-      final responseData = jsonDecode(response.body);
+      await FirebaseFirestore.instance.collection('eventos_calendario').add({
+        'propriedade_id': widget.propriedadeId,
+        'data_evento': DateFormat('yyyy-MM-dd').format(_selectedDay!),
+        'titulo_evento': _tituloController.text,
+        'descricao_evento': _descricaoController.text,
+        'dataCadastro': FieldValue.serverTimestamp(),
+      });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(responseData['message']),
-            backgroundColor: responseData['status'] == 'success'
-                ? Colors.green
-                : Colors.red,
+          const SnackBar(
+            content: Text('Evento cadastrado com sucesso!'),
+            backgroundColor: Colors.green,
           ),
         );
-        if (responseData['status'] == 'success') {
-          _tituloController.clear();
-          _descricaoController.clear();
-          _carregarEventos();
-        }
+        _tituloController.clear();
+        _descricaoController.clear();
+        _carregarEventos();
       }
     } catch (e) {
       // Tratar erro
@@ -178,25 +155,20 @@ class _TelaCalendarioState extends State<TelaCalendario> {
     }
   }
 
-  Future<void> _removerEvento(int eventoId) async {
+  Future<void> _removerEvento(String eventoId) async {
     try {
-      final response = await http.post(
-        Uri.parse(apiUrlExcluir),
-        body: {'id': eventoId.toString()},
-      );
-      final data = jsonDecode(response.body);
+      await FirebaseFirestore.instance
+          .collection('eventos_calendario')
+          .doc(eventoId)
+          .delete();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(data['message']),
-            backgroundColor: data['status'] == 'success'
-                ? Colors.green
-                : Colors.red,
+          const SnackBar(
+            content: Text('Evento excluído com sucesso!'),
+            backgroundColor: Colors.green,
           ),
         );
-        if (data['status'] == 'success') {
-          _carregarEventos();
-        }
+        _carregarEventos();
       }
     } catch (e) {
       // Tratar erro

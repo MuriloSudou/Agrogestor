@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'tela_cadastro.dart';
 import 'package:agrogestor/screens/tela_selecao_propriedade.dart';
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class TelaLogin extends StatefulWidget {
   const TelaLogin({super.key});
@@ -18,18 +17,6 @@ class _TelaLoginState extends State<TelaLogin> {
   final _formKey = GlobalKey<FormState>();
   bool _senhaOculta = true;
   bool _carregando = false;
-
-  String get _apiUrlBase {
-    if (kIsWeb) {
-      return 'http://localhost/api';
-    } else if (Platform.isAndroid) {
-      return 'http://10.0.2.2/api';
-    } else {
-      return 'http://localhost/api';
-    }
-  }
-
-  String get apiUrl => '$_apiUrlBase/login_agricultor.php';
 
   @override
   void dispose() {
@@ -52,12 +39,26 @@ class _TelaLoginState extends State<TelaLogin> {
             password: _senhaController.text.trim(),
           );
       if (!mounted) return;
+
+      // Buscar nome do usuário no Firestore
+      String nomeAgricultor = '';
+      final userDoc = await FirebaseFirestore.instance
+          .collection('usuarios')
+          .doc(userCredential.user!.uid)
+          .get();
+      if (userDoc.exists) {
+        final data = userDoc.data() as Map<String, dynamic>;
+        nomeAgricultor = data['nome'] ?? '';
+      }
+
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (context) => TelaSelecaoPropriedade(
             agricultorId: userCredential.user!.uid,
-            nomeAgricultor: userCredential.user?.email ?? '',
+            nomeAgricultor: nomeAgricultor.isNotEmpty
+                ? nomeAgricultor
+                : (userCredential.user?.email ?? ''),
           ),
         ),
       );

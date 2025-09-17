@@ -1,17 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:intl/intl.dart';
 import 'tela_notas_fiscais.dart';
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class NotaFiscal {
-  final int id;
+  final String id;
   final String numero;
   final String valor;
   final String dataEmissao;
-  final int? cultivoId;
+  final String? cultivoId;
   final String? nomeCultivo;
 
   NotaFiscal({
@@ -23,16 +21,15 @@ class NotaFiscal {
     this.nomeCultivo,
   });
 
-  factory NotaFiscal.fromJson(Map<String, dynamic> json) {
+  factory NotaFiscal.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
     return NotaFiscal(
-      id: int.parse(json['id'].toString()),
-      numero: json['numero_nota'].toString(),
-      valor: json['valor'].toString(),
-      dataEmissao: json['data_emissao'].toString(),
-      cultivoId: json['cultivo_id'] != null
-          ? int.tryParse(json['cultivo_id'].toString())
-          : null,
-      nomeCultivo: json['nome_cultivo']?.toString(),
+      id: doc.id,
+      numero: data['numero'] ?? '',
+      valor: data['valor'] ?? '',
+      dataEmissao: data['dataEmissao'] ?? '',
+      cultivoId: data['cultivoId'],
+      nomeCultivo: data['nomeCultivo'],
     );
   }
 }
@@ -49,14 +46,7 @@ class _TelaVisualizarNFState extends State<TelaVisualizarNF> {
   List<NotaFiscal> _notasFiscais = [];
   bool _carregando = true;
 
-  String get _apiUrlBase {
-    if (kIsWeb) return 'http://localhost/api';
-    if (Platform.isAndroid) return 'http://10.0.2.2/api';
-    return 'http://localhost/api';
-  }
-
-  String get apiUrlListagem => '$_apiUrlBase/listar_nf.php';
-  String get apiUrlExclusao => '$_apiUrlBase/excluir_nf.php';
+  // Removed API URLs as they are no longer needed
 
   @override
   void initState() {
@@ -69,18 +59,15 @@ class _TelaVisualizarNFState extends State<TelaVisualizarNF> {
       _carregando = true;
     });
     try {
-      final uri = Uri.parse(
-        '$apiUrlListagem?propriedade_id=${widget.propriedadeId}',
-      );
-      final response = await http.get(uri);
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        setState(() {
-          _notasFiscais = data
-              .map((json) => NotaFiscal.fromJson(json))
-              .toList();
-        });
-      }
+      final query = await FirebaseFirestore.instance
+          .collection('notas_fiscais')
+          .where('propriedadeId', isEqualTo: widget.propriedadeId)
+          .get();
+      setState(() {
+        _notasFiscais = query.docs
+            .map((doc) => NotaFiscal.fromFirestore(doc))
+            .toList();
+      });
     } catch (e) {
       // Tratar erro
     } finally {
@@ -107,7 +94,7 @@ class _TelaVisualizarNFState extends State<TelaVisualizarNF> {
     }
   }
 
-  void _mostrarDialogoConfirmacao(int notaId) {
+  void _mostrarDialogoConfirmacao(String notaId) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -135,25 +122,20 @@ class _TelaVisualizarNFState extends State<TelaVisualizarNF> {
     );
   }
 
-  Future<void> _excluirNota(int notaId) async {
+  Future<void> _excluirNota(String notaId) async {
     try {
-      final response = await http.post(
-        Uri.parse(apiUrlExclusao),
-        body: {'id': notaId.toString()},
-      );
-      final data = jsonDecode(response.body);
+      await FirebaseFirestore.instance
+          .collection('notas_fiscais')
+          .doc(notaId)
+          .delete();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(data['message']),
-            backgroundColor: data['status'] == 'success'
-                ? Colors.green
-                : Colors.red,
+          const SnackBar(
+            content: Text('Nota fiscal excluída com sucesso!'),
+            backgroundColor: Colors.green,
           ),
         );
-        if (data['status'] == 'success') {
-          _listarNotasFiscais();
-        }
+        _listarNotasFiscais();
       }
     } catch (e) {
       // Tratar erro

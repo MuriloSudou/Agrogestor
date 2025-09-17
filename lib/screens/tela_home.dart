@@ -101,6 +101,12 @@ class _TelaHomeState extends State<TelaHome> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
+        leading: Navigator.canPop(context)
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => Navigator.of(context).maybePop(),
+              )
+            : null,
         title: Text(_dadosDashboard?['nome_propriedade'] ?? "AgroGestor"),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
