@@ -281,7 +281,7 @@ class _TelaNotasFiscaisState extends State<TelaNotasFiscais> {
                         labelText: 'Associar ao Cultivo',
                         border: OutlineInputBorder(),
                       ),
-                      value: _cultivoSelecionadoId,
+                      initialValue: _cultivoSelecionadoId,
                       items: _cultivos.map<DropdownMenuItem<String>>((cultivo) {
                         return DropdownMenuItem<String>(
                           value: cultivo.id,

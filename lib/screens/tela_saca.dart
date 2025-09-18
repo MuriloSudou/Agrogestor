@@ -276,7 +276,7 @@ class _TelaSacasState extends State<TelaSacas> {
                       child: Column(
                         children: [
                           DropdownButtonFormField<String>(
-                            value: _cultivoSelecionadoId,
+                            initialValue: _cultivoSelecionadoId,
                             decoration: const InputDecoration(
                               labelText: 'Cultivo*',
                               border: OutlineInputBorder(),

@@ -101,12 +101,6 @@ class _TelaHomeState extends State<TelaHome> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        leading: Navigator.canPop(context)
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => Navigator.of(context).maybePop(),
-              )
-            : null,
         title: Text(_dadosDashboard?['nome_propriedade'] ?? "AgroGestor"),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
@@ -285,9 +279,16 @@ class _TelaHomeState extends State<TelaHome> {
           ),
           _buildDrawerItem(
             context: context,
+            title: 'Voltar',
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.of(context).maybePop();
+            },
+          ),
+          _buildDrawerItem(
+            context: context,
             title: 'Notas Fiscais',
             onTap: () async {
-              // Navega para a tela e espera que ela seja fechada
               await Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -295,8 +296,6 @@ class _TelaHomeState extends State<TelaHome> {
                       TelaNotasFiscais(propriedadeId: widget.propriedadeId),
                 ),
               );
-
-              // Quando o usuário voltar (pop), recarrega os dados do dashboard
               _carregarDadosDashboard();
             },
           ),
