@@ -200,7 +200,7 @@ class _TelaCustoState extends State<TelaCusto> {
                                     borderSide: BorderSide(color: primaryColor),
                                   ),
                                 ),
-                                initialValue: _cultivoSelecionado,
+                                value: _cultivoSelecionado,
                                 hint: const Text('Selecione um cultivo'),
                                 // ATUALIZADO: A lógica de cálculo agora está aqui
                                 onChanged: (String? newValue) {
